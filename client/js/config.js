@@ -13,7 +13,7 @@ const API_CONFIG = {
     // production: 'https://your-app-name.onrender.com/api',
     
     // CURRENT SETTING:
-    production: 'https://api.maanchitra.in/api',
+    production: 'https://historical-timeline-a223.onrender.com/api',
     
     // Automatically use the right URL based on hostname
     getBaseUrl: function() {
