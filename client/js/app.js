@@ -13,8 +13,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentTagFilter = []; // Array to store multiple selected tags
     let currentLocationFilter = null; // Currently selected location
     
-    // API Base URL
-    const API_URL = 'http://localhost:3000/api';
+    // API Base URL - Uses dynamic configuration from config.js
+    const API_URL = window.API_CONFIG ? window.API_CONFIG.getBaseUrl() : 'http://localhost:3000/api';
     
     // Indian cities and coordinates
     const locations = [
