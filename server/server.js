@@ -212,7 +212,7 @@ app.get('/api/periods', async (req, res) => {
 app.get('/api/events', async (req, res) => {
     try {
         console.log('GET /api/events - Query params:', req.query);
-        const { period_id, start_year, end_year, date } = req.query;
+        const { period_id, start_year, end_year, date, year } = req.query;
         
         let query = {};
         
@@ -248,17 +248,25 @@ app.get('/api/events', async (req, res) => {
             }
         }
         
-        // Parse year parameters safely
-        if (start_year !== undefined && start_year !== null && start_year !== '') {
-            const startYearNum = parseInt(start_year);
-            if (!isNaN(startYearNum)) {
-                query.year = { ...query.year, $gte: startYearNum };
+        // Parse year parameter for exact year match
+        if (year !== undefined && year !== null && year !== '') {
+            const yearNum = parseInt(year);
+            if (!isNaN(yearNum)) {
+                query.year = yearNum;
             }
-        }
-        if (end_year !== undefined && end_year !== null && end_year !== '') {
-            const endYearNum = parseInt(end_year);
-            if (!isNaN(endYearNum)) {
-                query.year = { ...query.year, $lte: endYearNum };
+        } else {
+            // Parse year range parameters
+            if (start_year !== undefined && start_year !== null && start_year !== '') {
+                const startYearNum = parseInt(start_year);
+                if (!isNaN(startYearNum)) {
+                    query.year = { ...query.year, $gte: startYearNum };
+                }
+            }
+            if (end_year !== undefined && end_year !== null && end_year !== '') {
+                const endYearNum = parseInt(end_year);
+                if (!isNaN(endYearNum)) {
+                    query.year = { ...query.year, $lte: endYearNum };
+                }
             }
         }
         
