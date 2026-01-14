@@ -790,14 +790,18 @@ app.get('/api/admin/subscriptions', async (req, res) => {
     }
 });
 
-// 404 handler for undefined API routes
-app.all('/api/*', (req, res) => {
-    console.log('404 - Route not found:', req.method, req.originalUrl);
-    res.status(404).json({ 
-        error: 'API endpoint not found',
-        path: req.originalUrl,
-        method: req.method
-    });
+// 404 handler for undefined routes
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+        console.log('404 - Route not found:', req.method, req.originalUrl);
+        res.status(404).json({ 
+            error: 'API endpoint not found',
+            path: req.originalUrl,
+            method: req.method
+        });
+    } else {
+        next();
+    }
 });
 
 // Global error handler
