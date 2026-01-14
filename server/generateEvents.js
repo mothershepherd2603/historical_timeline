@@ -3,11 +3,6 @@ const Event = require('./models/Event');
 const Period = require('./models/Period');
 require('dotenv').config();
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/historical_timeline')
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
-
 // Historical event templates
 const eventTemplates = {
     ancient: [
@@ -147,17 +142,23 @@ async function generateEventsForPeriod(periodName, periodId, startYear, endYear,
 // Main function to generate all events
 async function generateAllEvents() {
     try {
+        // Connect to MongoDB
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/historical_timeline');
+        console.log('Connected to MongoDB\n');
+        
         console.log('Starting event generation...\n');
         
         // Get periods from database
         const periods = await Period.find({});
         const periodMap = {};
         periods.forEach(p => {
-            periodMap[p.name.toLowerCase().split(' ')[0]] = p;
+            const key = p.name.toLowerCase().split(' ')[0];
+            periodMap[key] = p;
+            console.log(`Found period: ${p.name} -> ${key}`);
         });
         
         // Delete existing events
-        console.log('Deleting existing events...');
+        console.log('\nDeleting existing events...');
         await Event.deleteMany({});
         console.log('Existing events deleted.\n');
         
@@ -165,10 +166,12 @@ async function generateAllEvents() {
         
         // Generate events for each period
         // Ancient: 40,000 events
-        if (periodMap.ancient) {
+        const ancientPeriod = periodMap.ancient || periods.find(p => p.name.toLowerCase().includes('ancient'));
+        if (ancientPeriod) {
+            console.log(`Using period: ${ancientPeriod.name} for ancient events`);
             const ancientEvents = await generateEventsForPeriod(
                 'ancient',
-                periodMap.ancient._id,
+                ancientPeriod._id,
                 -3000,
                 500,
                 40000
@@ -177,10 +180,12 @@ async function generateAllEvents() {
         }
         
         // Medieval: 35,000 events
-        if (periodMap.medieval) {
+        const medievalPeriod = periodMap.medieval || periods.find(p => p.name.toLowerCase().includes('medieval'));
+        if (medievalPeriod) {
+            console.log(`Using period: ${medievalPeriod.name} for medieval events`);
             const medievalEvents = await generateEventsForPeriod(
                 'medieval',
-                periodMap.medieval._id,
+                medievalPeriod._id,
                 500,
                 1500,
                 35000
@@ -189,10 +194,12 @@ async function generateAllEvents() {
         }
         
         // Modern: 30,000 events
-        if (periodMap.modern) {
+        const modernPeriod = periodMap.modern || periods.find(p => p.name.toLowerCase().includes('modern'));
+        if (modernPeriod) {
+            console.log(`Using period: ${modernPeriod.name} for modern events`);
             const modernEvents = await generateEventsForPeriod(
                 'modern',
-                periodMap.modern._id,
+                modernPeriod._id,
                 1500,
                 1947,
                 30000
@@ -201,10 +208,12 @@ async function generateAllEvents() {
         }
         
         // Current: 5,000 events (smaller period, more recent)
-        if (periodMap.current) {
+        const currentPeriod = periodMap.current || periods.find(p => p.name.toLowerCase().includes('current'));
+        if (currentPeriod) {
+            console.log(`Using period: ${currentPeriod.name} for current events`);
             const currentEvents = await generateEventsForPeriod(
                 'current',
-                periodMap.current._id,
+                currentPeriod._id,
                 1947,
                 2025,
                 5000

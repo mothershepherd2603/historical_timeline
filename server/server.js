@@ -211,6 +211,7 @@ app.get('/api/periods', async (req, res) => {
 // Get events
 app.get('/api/events', async (req, res) => {
     try {
+        console.log('GET /api/events - Query params:', req.query);
         const { period_id, start_year, end_year, date } = req.query;
         
         let query = {};
@@ -247,8 +248,21 @@ app.get('/api/events', async (req, res) => {
             }
         }
         
-        if (start_year) query.year = { ...query.year, $gte: parseInt(start_year) };
-        if (end_year) query.year = { ...query.year, $lte: parseInt(end_year) };
+        // Parse year parameters safely
+        if (start_year !== undefined && start_year !== null && start_year !== '') {
+            const startYearNum = parseInt(start_year);
+            if (!isNaN(startYearNum)) {
+                query.year = { ...query.year, $gte: startYearNum };
+            }
+        }
+        if (end_year !== undefined && end_year !== null && end_year !== '') {
+            const endYearNum = parseInt(end_year);
+            if (!isNaN(endYearNum)) {
+                query.year = { ...query.year, $lte: endYearNum };
+            }
+        }
+        
+        console.log('Events query:', JSON.stringify(query));
         
         // Add date filter for Current Affairs (exact date match)
         if (date) {
@@ -263,16 +277,27 @@ app.get('/api/events', async (req, res) => {
         }
         
         // Add limit parameter support to prevent overwhelming the client
-        const limit = req.query.limit ? parseInt(req.query.limit) : 0; // 0 means no limit
+        // Default limit is 500 to prevent memory/timeout issues on free tier servers
+        // Frontend can request more with ?limit=10000 if needed
+        const defaultLimit = 500;
+        const limit = req.query.limit ? parseInt(req.query.limit) : defaultLimit;
+        const skip = req.query.skip ? parseInt(req.query.skip) : 0;
         
+        console.log('Fetching events with limit:', limit, 'skip:', skip);
+        
+        // Sort by year (ascending) - date is optional so we sort by year primarily
         const events = await Event.find(query)
-            .sort({ date: -1, year: 1 })
-            .limit(limit);
+            .sort({ year: 1, date: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(); // Use lean() for better performance
+        
+        console.log('Returning', events.length, 'events');
         
         res.json(events);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error fetching events:', err);
+        res.status(500).json({ error: 'Server error', message: err.message });
     }
 });
 
