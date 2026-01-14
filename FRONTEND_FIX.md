@@ -28,32 +28,34 @@ if (currentPeriod === "current" && currentDate) {
 }
 ```
 
-### AFTER - Option 1: Request specific year only (RECOMMENDED):
+### AFTER - Option 1: Request specific year or date (RECOMMENDED):
 
 ```javascript
-// Fetch events for the current year being viewed
-// Backend now limits to 500 events per request, so we request specific years
-let url = `${API_URL}/events?year=${currentYear}`;
-
-// Add date parameter for Current Affairs
+// Fetch events for the current year being viewed (or date for Current Affairs)
+// Backend now limits to 500 events per request, so we request specific years/dates
+let url;
 if (currentPeriod === "current" && currentDate) {
-  url += `&date=${currentDate}`;
+  // For Current Affairs, fetch by specific date
+  url = `${API_URL}/events?date=${currentDate}`;
+} else {
+  // For historical periods, fetch by specific year
+  url = `${API_URL}/events?year=${currentYear}`;
 }
 ```
 
-### AFTER - Option 2: Request a range around current year:
+### AFTER - Option 2: Request a range around current year/date:
 
 ```javascript
-// Fetch events for a range around the current year (±50 years)
-const yearRange = 50;
-const startYear = currentYear - yearRange;
-const endYear = currentYear + yearRange;
-
-let url = `${API_URL}/events?start_year=${startYear}&end_year=${endYear}`;
-
-// Add date parameter for Current Affairs
+// For Current Affairs: fetch by date
+// For historical periods: fetch a range around the current year (±50 years)
+let url;
 if (currentPeriod === "current" && currentDate) {
-  url += `&date=${currentDate}`;
+  url = `${API_URL}/events?date=${currentDate}`;
+} else {
+  const yearRange = 50;
+  const startYear = currentYear - yearRange;
+  const endYear = currentYear + yearRange;
+  url = `${API_URL}/events?start_year=${startYear}&end_year=${endYear}`;
 }
 ```
 
@@ -122,12 +124,14 @@ async function loadYearData(year, retryCount = 0) {
     };
     const currentRange = periodMap[currentPeriod];
 
-    // CHANGE: Fetch events for specific year only
-    let url = `${API_URL}/events?year=${year}`;
-
-    // Add date parameter for Current Affairs
+    // CHANGE: Fetch events for specific year or date
+    let url;
     if (currentPeriod === "current" && currentDate) {
-      url += `&date=${currentDate}`;
+      // For Current Affairs, fetch by date (not year)
+      url = `${API_URL}/events?date=${currentDate}`;
+    } else {
+      // For other periods, fetch by specific year
+      url = `${API_URL}/events?year=${year}`;
     }
 
     const response = await fetch(url, {
@@ -160,8 +164,16 @@ async function loadYearData(year, retryCount = 0) {
 
 ## Why This Works
 
-1. **Before**: Frontend requested 40,000 events, got first 500 (years -3000 to -2500), filtered to year 0 = 0 events shown
-2. **After**: Frontend requests only year 0 events, gets all events for year 0, displays them immediately
+1. **Historical Periods (Ancient/Medieval/Modern)**:
+
+   - **Before**: Frontend requested 40,000 events, got first 500 (years -3000 to -2500), filtered to year 0 = 0 events shown
+   - **After**: Frontend requests only year 0 events, gets all events for year 0, displays them immediately
+
+2. **Current Affairs Period**:
+   - **Before**: Frontend requested all events from 1947-2026, got first 500, filtered by specific date = might show 0 events
+   - **After**: Frontend requests events for specific date only (e.g., 2026-01-14), gets all events for that date
+
+This ensures users always see relevant events for the year or date they're viewing.
 
 ## Testing
 
@@ -182,10 +194,17 @@ The error "A listener indicated an asynchronous response by returning true..." i
 
 ## Backend Changes Made
 
-The backend now supports both request patterns:
+The backend now supports these request patterns:
+
+**Historical Periods (by year):**
 
 - `GET /api/events?year=0` - Get events for year 0 only
 - `GET /api/events?start_year=-100&end_year=100` - Get events in a range (limited to 500)
 - `GET /api/events?start_year=-100&end_year=100&limit=2000` - Get up to 2000 events in a range
+
+**Current Affairs (by date):**
+
+- `GET /api/events?date=2026-01-14` - Get events for January 14, 2026 only
+- `GET /api/events?date=2026-01-14&limit=100` - Get events for that date with custom limit
 
 You should deploy the updated backend first, then update the frontend.
