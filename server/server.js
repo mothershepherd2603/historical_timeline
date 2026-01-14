@@ -791,7 +791,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
 });
 
 // 404 handler for undefined API routes
-app.use('/api/:path(*)', (req, res) => {
+app.all('/api/*', (req, res) => {
     console.log('404 - Route not found:', req.method, req.originalUrl);
     res.status(404).json({ 
         error: 'API endpoint not found',
