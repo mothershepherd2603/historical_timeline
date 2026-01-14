@@ -1,0 +1,196 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║       HOSTINGER DEPLOYMENT CHECKLIST - maanchitra.in                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+□ PHASE 1: MONGODB ATLAS SETUP (5 minutes)
+  □ Create MongoDB Atlas account at cloud.mongodb.com
+  □ Create free cluster (M0 tier)
+  □ Create database user with password
+  □ Whitelist IP: 0.0.0.0/0 (Network Access)
+  □ Copy connection string
+  □ Replace username, password, and add database name
+  
+□ PHASE 2: LOCAL DATABASE SEEDING (3 minutes)
+  □ Create server/.env file with MongoDB URI
+  □ Add JWT_SECRET, RAZORPAY keys, CORS_ORIGIN
+  □ cd server
+  □ npm install
+  □ npm run seed
+  □ Verify data in MongoDB Atlas web interface
+  
+□ PHASE 3: HOSTINGER SETUP (2 minutes)
+  □ Log in to https://hpanel.hostinger.com
+  □ Verify hosting plan for maanchitra.in
+  □ Check if Node.js is available (Advanced → Node.js)
+  
+□ PHASE 4: NODE.JS APPLICATION SETUP (5 minutes)
+  □ Go to Advanced → Node.js
+  □ Click "Create Application"
+  □ Set Application Mode: Production
+  □ Set Application Root: server (or api)
+  □ Create subdomain: api.maanchitra.in (Domains → Subdomains)
+  □ Set Application URL: api.maanchitra.in
+  □ Set Startup File: server.js
+  □ Select Node.js Version: 18.x or latest LTS
+  □ Click "Create"
+  
+□ PHASE 5: UPLOAD BACKEND FILES (10 minutes)
+  Via File Manager:
+  □ Go to Files → File Manager
+  □ Navigate to server (or api) folder
+  □ Upload server.js
+  □ Upload package.json
+  □ Upload models/ folder (all files)
+  □ Upload seed.js, generateEvents.js, addCurrentAffairs.js
+  □ Upload all other server files
+  
+  Via FTP (Alternative):
+  □ Get FTP credentials from Files → FTP Accounts
+  □ Connect with FileZilla
+  □ Upload all server files maintaining folder structure
+  
+□ PHASE 6: ENVIRONMENT VARIABLES (3 minutes)
+  □ In File Manager, navigate to server folder
+  □ Create new file: .env
+  □ Add MONGODB_URI
+  □ Add JWT_SECRET
+  □ Add RAZORPAY_KEY_ID
+  □ Add RAZORPAY_KEY_SECRET
+  □ Add PORT=3000
+  □ Add NODE_ENV=production
+  □ Add CORS_ORIGIN=https://maanchitra.in
+  □ Save file
+  
+□ PHASE 7: START BACKEND (5 minutes)
+  □ Go to Advanced → Node.js
+  □ Find your application
+  □ Click "Run NPM Install"
+  □ Wait for completion
+  □ Click "Start" or "Restart"
+  □ Verify status shows "Running"
+  □ Test: https://api.maanchitra.in/api/periods
+  
+□ PHASE 8: UPLOAD FRONTEND (5 minutes)
+  □ Go to Files → File Manager
+  □ Navigate to public_html
+  □ Upload index.html
+  □ Upload admin.html
+  □ Upload css/ folder (all files)
+  □ Upload js/ folder (all files)
+  □ Upload assets/ folder (all files)
+  □ Verify folder structure is correct
+  
+□ PHASE 9: UPDATE API CONFIGURATION (2 minutes)
+  □ In File Manager, edit public_html/js/config.js
+  □ Change production URL to: https://api.maanchitra.in/api
+  □ Save file
+  
+□ PHASE 10: SSL CERTIFICATE (5 minutes)
+  □ Go to Security → SSL
+  □ Select maanchitra.in
+  □ Click "Install SSL"
+  □ Choose "Free SSL" (Let's Encrypt)
+  □ Wait 5-15 minutes for activation
+  □ Enable "Force HTTPS" redirect
+  □ Verify https://maanchitra.in loads with padlock
+  
+□ PHASE 11: TESTING (10 minutes)
+  □ Visit https://maanchitra.in
+  □ Test homepage loads correctly
+  □ Test user registration
+  □ Test user login
+  □ Browse historical events
+  □ Test timeline navigation
+  □ Test map functionality
+  □ Visit https://maanchitra.in/admin.html
+  □ Login as admin (admin/admin123)
+  □ Change admin password immediately!
+  □ Test adding/editing events
+  □ Test subscription flow (Razorpay test mode)
+  
+□ PHASE 12: POST-DEPLOYMENT SECURITY
+  □ Change default admin password
+  □ Create .htaccess to protect .env file
+  □ Update MongoDB IP whitelist to specific IPs
+  □ Enable ModSecurity (Security → ModSecurity)
+  □ Enable automatic backups (Files → Backups)
+  
+□ PHASE 13: PERFORMANCE OPTIMIZATION
+  □ Enable caching (Advanced → Cache Manager)
+  □ Enable Cloudflare (Advanced → Cloudflare) - Optional
+  □ Compress images in assets folder
+  □ Test site speed
+
+═══════════════════════════════════════════════════════════════════════
+
+🔗 QUICK LINKS:
+  MongoDB Atlas: https://cloud.mongodb.com
+  Hostinger hPanel: https://hpanel.hostinger.com
+  DNS Checker: https://dnschecker.org
+  SSL Checker: https://www.sslshopper.com/ssl-checker.html
+
+📁 KEY FILES TO CHECK:
+  Backend .env: server/.env (must have all variables)
+  Frontend config: public_html/js/config.js (API URL)
+  Admin panel: https://maanchitra.in/admin.html
+
+⚡ QUICK COMMANDS (SSH):
+  Connect: ssh u123456789@your-server-ip
+  Navigate: cd domains/maanchitra.in/public_html/server
+  Install: npm install
+  Seed: npm run seed
+  Logs: pm2 logs
+  Restart: pm2 restart all
+
+🆘 COMMON ISSUES:
+
+1. Node.js App Won't Start
+   → Check logs in hPanel → Node.js → Logs
+   → Verify .env file exists with correct values
+   → Run "NPM Install" again
+
+2. CORS Errors
+   → Check CORS_ORIGIN in .env matches domain exactly
+   → Restart Node.js app
+
+3. Database Connection Failed
+   → Verify MongoDB connection string
+   → Check IP whitelist includes 0.0.0.0/0
+   → Test connection locally first
+
+4. Frontend Not Loading
+   → Check all files in public_html
+   → Verify index.html in root
+   → Clear browser cache
+   → Check SSL is active
+
+5. API Calls Failing
+   → Verify URL in config.js
+   → Test API: https://api.maanchitra.in/api/periods
+   → Check browser console
+   → Ensure backend is running
+
+6. SSL Not Working
+   → Wait 15-30 minutes after installation
+   → Reinstall SSL certificate
+   → Contact Hostinger support
+
+💰 COSTS (Monthly):
+  Hostinger Business: ₹150-300
+  MongoDB Atlas: FREE
+  Domain: Included or ₹1000/year
+  Total: ~₹150-300/month
+
+═══════════════════════════════════════════════════════════════════════
+
+ALTERNATIVE: If Node.js Not Available on Hostinger
+  □ Deploy backend to Render (free) - see DEPLOYMENT_GUIDE.md
+  □ Upload frontend to Hostinger public_html
+  □ Update config.js with Render backend URL
+
+═══════════════════════════════════════════════════════════════════════
+                      Total Time: ~45-60 minutes
+═══════════════════════════════════════════════════════════════════════
+
+Need detailed instructions? See DEPLOYMENT_GUIDE.md
+Need quick reference? See QUICK_DEPLOY.md

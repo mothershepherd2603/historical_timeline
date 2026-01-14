@@ -1,0 +1,90 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║          DEPLOYMENT CHECKLIST - maanchitra.in                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+□ PHASE 1: DATABASE SETUP (5 minutes)
+  □ Create MongoDB Atlas account
+  □ Create cluster (free M0)
+  □ Create database user with password
+  □ Whitelist IP: 0.0.0.0/0
+  □ Copy connection string
+  
+□ PHASE 2: ENVIRONMENT SETUP (2 minutes)
+  □ Create server/.env file
+  □ Add MONGODB_URI from Atlas
+  □ Add JWT_SECRET (random 64-char string)
+  □ Add RAZORPAY_KEY_ID and SECRET
+  □ Set CORS_ORIGIN=https://maanchitra.in
+  
+□ PHASE 3: SEED DATABASE (3 minutes)
+  □ cd server
+  □ npm install
+  □ npm run seed
+  □ Verify data in MongoDB Atlas
+  
+□ PHASE 4: DEPLOY BACKEND (10 minutes)
+  □ Push code to GitHub
+  □ Create Render account
+  □ New Web Service → Connect GitHub
+  □ Root directory: server
+  □ Build: npm install
+  □ Start: npm start
+  □ Add all environment variables
+  □ Deploy and copy URL: https://_____.onrender.com
+  
+□ PHASE 5: UPDATE FRONTEND (1 minute)
+  □ Edit client/js/config.js
+  □ Change production URL to Render API URL
+  
+□ PHASE 6: DEPLOY FRONTEND (5 minutes)
+  □ npm install -g vercel
+  □ cd client
+  □ vercel (follow prompts)
+  □ Copy deployment URL
+  
+□ PHASE 7: CONFIGURE DOMAIN (15-60 minutes)
+  □ In Vercel: Add custom domain maanchitra.in
+  □ In Domain Registrar DNS:
+    - A record: @ → 76.76.21.21
+    - CNAME: www → cname.vercel-dns.com
+  □ Wait for DNS propagation
+  
+□ PHASE 8: TESTING (5 minutes)
+  □ Visit https://maanchitra.in
+  □ Test registration
+  □ Test login
+  □ Browse events
+  □ Test admin panel (/admin.html)
+  □ Test subscription (test mode)
+
+═══════════════════════════════════════════════════════════════════════
+
+🔗 QUICK LINKS:
+  MongoDB Atlas: https://cloud.mongodb.com
+  Render: https://render.com
+  Vercel: https://vercel.com
+  DNS Checker: https://dnschecker.org
+
+📁 KEY FILES:
+  Configuration: client/js/config.js
+  Environment: server/.env
+  Guides: QUICK_DEPLOY.md, DEPLOYMENT_GUIDE.md
+
+⚡ COMMON COMMANDS:
+  Seed DB:     cd server && npm run seed
+  Start Local: cd server && npm start
+  Deploy:      cd client && vercel
+
+🆘 TROUBLESHOOTING:
+  CORS Error → Check CORS_ORIGIN in Render matches domain exactly
+  DB Error → Verify connection string and IP whitelist
+  API Error → Check backend running, verify URL in config.js
+  DNS Error → Use dnschecker.org, wait longer
+
+💰 COSTS:
+  Free Tier: ~₹1000/year (domain only)
+  Paid Tier: ~₹7000/year ($7/mo Render + domain)
+
+═══════════════════════════════════════════════════════════════════════
+                    Total Time: ~45 minutes
+═══════════════════════════════════════════════════════════════════════
