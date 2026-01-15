@@ -616,13 +616,18 @@ app.delete('/api/admin/periods/:id', async (req, res) => {
 // Event management routes
 app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { title, description, summary, year, period_id, latitude, longitude, tags, media_ids } = req.body;
+        const { title, description, summary, year, date, period_id, latitude, longitude, tags, media_ids } = req.body;
         
-        console.log('Creating event with data:', { title, summary, year, period_id });
+        console.log('Creating event with data:', { title, summary, year, date, period_id });
         
         if (!title || !summary || !year || !period_id) {
             console.log('Validation failed:', { title: !!title, summary: !!summary, year: !!year, period_id: !!period_id });
             return res.status(400).json({ error: 'Required fields missing: title, summary, year, and period_id are required' });
+        }
+        
+        // Validate ObjectId
+        if (!mongoose.Types.ObjectId.isValid(period_id)) {
+            return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
         }
         
         const newEvent = await Event.create({
@@ -630,6 +635,7 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             description,
             summary,
             year,
+            date: date || undefined,
             period_id,
             latitude,
             longitude,
@@ -647,10 +653,18 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
 
 app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { title, description, summary, year, period_id, latitude, longitude, tags, media_ids } = req.body;
+        const { title, description, summary, year, date, period_id, latitude, longitude, tags, media_ids } = req.body;
         
         if (!title || !summary || !year || !period_id) {
             return res.status(400).json({ error: 'Required fields missing' });
+        }
+        
+        // Validate ObjectIds
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ error: 'Invalid event ID' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(period_id)) {
+            return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
         }
         
         const updatedEvent = await Event.findByIdAndUpdate(
@@ -660,6 +674,7 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
                 description,
                 summary,
                 year,
+                date: date || undefined,
                 period_id,
                 latitude,
                 longitude,
@@ -683,6 +698,11 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
 
 app.delete('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
+        // Validate ObjectId
+        if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ error: 'Invalid or missing event ID' });
+        }
+        
         const result = await Event.findByIdAndDelete(req.params.id);
         
         if (!result) {
