@@ -212,7 +212,10 @@ app.get('/api/periods', async (req, res) => {
 app.get('/api/events', async (req, res) => {
     try {
         console.log('GET /api/events - Query params:', req.query);
-        const { period_id, start_year, end_year, date, year } = req.query;
+        const { 
+            period_id, start_year, end_year, date, year,
+            event_type, location_type, geographic_scope 
+        } = req.query;
         
         let query = {};
         
@@ -248,25 +251,71 @@ app.get('/api/events', async (req, res) => {
             }
         }
         
-        // Parse year parameter for exact year match
+        // Filter by event_type
+        if (event_type) {
+            query.event_type = event_type;
+        }
+        
+        // Filter by location_type
+        if (location_type) {
+            query.location_type = location_type;
+        }
+        
+        // Filter by geographic_scope
+        if (geographic_scope) {
+            query.geographic_scope = geographic_scope;
+        }
+        
+        // Parse year parameter for exact year match (for point events)
         if (year !== undefined && year !== null && year !== '') {
             const yearNum = parseInt(year);
             if (!isNaN(yearNum)) {
                 query.year = yearNum;
             }
-        } else {
-            // Parse year range parameters
+        } else if (start_year !== undefined || end_year !== undefined) {
+            // Year range filtering - applies to both point and period events
+            const $or = [];
+            
+            // For point events: filter by year field
+            const pointQuery = {};
             if (start_year !== undefined && start_year !== null && start_year !== '') {
                 const startYearNum = parseInt(start_year);
                 if (!isNaN(startYearNum)) {
-                    query.year = { ...query.year, $gte: startYearNum };
+                    pointQuery.year = { ...pointQuery.year, $gte: startYearNum };
                 }
             }
             if (end_year !== undefined && end_year !== null && end_year !== '') {
                 const endYearNum = parseInt(end_year);
                 if (!isNaN(endYearNum)) {
-                    query.year = { ...query.year, $lte: endYearNum };
+                    pointQuery.year = { ...pointQuery.year, $lte: endYearNum };
                 }
+            }
+            if (Object.keys(pointQuery).length > 0) {
+                $or.push({ event_type: 'point', ...pointQuery });
+            }
+            
+            // For period events: filter by start_year and end_year
+            const periodQuery = { event_type: 'period' };
+            if (start_year !== undefined && start_year !== null && start_year !== '') {
+                const startYearNum = parseInt(start_year);
+                if (!isNaN(startYearNum)) {
+                    // Period overlaps if: period.end_year >= filter.start_year
+                    periodQuery.end_year = { $gte: startYearNum };
+                }
+            }
+            if (end_year !== undefined && end_year !== null && end_year !== '') {
+                const endYearNum = parseInt(end_year);
+                if (!isNaN(endYearNum)) {
+                    // Period overlaps if: period.start_year <= filter.end_year
+                    periodQuery.start_year = { $lte: endYearNum };
+                }
+            }
+            if (Object.keys(periodQuery).length > 1) { // More than just event_type
+                $or.push(periodQuery);
+            }
+            
+            if ($or.length > 0) {
+                query.$or = $or;
             }
         }
         
@@ -293,9 +342,9 @@ app.get('/api/events', async (req, res) => {
         
         console.log('Fetching events with limit:', limit, 'skip:', skip);
         
-        // Sort by year (ascending) - date is optional so we sort by year primarily
+        // Sort by year (ascending) - for point events use year, for period events use start_year
         const events = await Event.find(query)
-            .sort({ year: 1, date: -1 })
+            .sort({ year: 1, start_year: 1, date: -1 })
             .skip(skip)
             .limit(limit)
             .lean(); // Use lean() for better performance
@@ -616,13 +665,25 @@ app.delete('/api/admin/periods/:id', async (req, res) => {
 // Event management routes
 app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { title, description, summary, year, date, period_id, latitude, longitude, tags, media_ids } = req.body;
+        const { 
+            title, description, summary, 
+            description_hindi, description_hinglish,
+            event_type, year, start_year, end_year,
+            date, start_date, end_date,
+            location_type, latitude, longitude, place_name,
+            geographic_scope, area_name,
+            period_id, tags, media_ids 
+        } = req.body;
         
-        console.log('Creating event with data:', { title, summary, year, date, period_id });
+        console.log('Creating event with data:', { 
+            title, summary, event_type, year, start_year, end_year,
+            location_type, geographic_scope, area_name, period_id 
+        });
         
-        if (!title || !summary || !year || !period_id) {
-            console.log('Validation failed:', { title: !!title, summary: !!summary, year: !!year, period_id: !!period_id });
-            return res.status(400).json({ error: 'Required fields missing: title, summary, year, and period_id are required' });
+        // Basic required fields
+        if (!title || !summary || !period_id) {
+            console.log('Validation failed:', { title: !!title, summary: !!summary, period_id: !!period_id });
+            return res.status(400).json({ error: 'Required fields missing: title, summary, and period_id are required' });
         }
         
         // Validate ObjectId
@@ -630,33 +691,69 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
         }
         
-        const newEvent = await Event.create({
+        // Construct event data object
+        const eventData = {
             title,
             description,
             summary,
-            year,
-            date: date || undefined,
+            description_hindi,
+            description_hinglish,
+            event_type: event_type || 'point',
+            location_type: location_type || 'point',
             period_id,
-            latitude,
-            longitude,
             tags: tags || [],
             media_ids: media_ids || [],
             created_by: req.user.id
-        });
+        };
+        
+        // Add event type specific fields
+        if (eventData.event_type === 'point') {
+            eventData.year = year;
+            eventData.date = date;
+        } else if (eventData.event_type === 'period') {
+            eventData.start_year = start_year;
+            eventData.end_year = end_year;
+            eventData.start_date = start_date;
+            eventData.end_date = end_date;
+        }
+        
+        // Add location type specific fields
+        if (eventData.location_type === 'point') {
+            eventData.latitude = latitude;
+            eventData.longitude = longitude;
+            eventData.place_name = place_name;
+        } else if (eventData.location_type === 'area') {
+            eventData.geographic_scope = geographic_scope;
+            eventData.area_name = area_name;
+            // Allow optional coordinates for area center
+            if (latitude !== undefined) eventData.latitude = latitude;
+            if (longitude !== undefined) eventData.longitude = longitude;
+        }
+        
+        const newEvent = await Event.create(eventData);
         
         res.status(201).json(newEvent);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error creating event:', err);
+        res.status(500).json({ error: 'Server error', message: err.message });
     }
 });
 
 app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { title, description, summary, year, date, period_id, latitude, longitude, tags, media_ids } = req.body;
+        const { 
+            title, description, summary,
+            description_hindi, description_hinglish,
+            event_type, year, start_year, end_year,
+            date, start_date, end_date,
+            location_type, latitude, longitude, place_name,
+            geographic_scope, area_name,
+            period_id, tags, media_ids 
+        } = req.body;
         
-        if (!title || !summary || !year || !period_id) {
-            return res.status(400).json({ error: 'Required fields missing' });
+        // Basic required fields
+        if (!title || !summary || !period_id) {
+            return res.status(400).json({ error: 'Required fields missing: title, summary, and period_id are required' });
         }
         
         // Validate ObjectIds
@@ -667,22 +764,61 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
         }
         
+        // Construct update data object
+        const updateData = {
+            title,
+            description,
+            summary,
+            description_hindi,
+            description_hinglish,
+            event_type: event_type || 'point',
+            location_type: location_type || 'point',
+            period_id,
+            tags: tags || [],
+            media_ids: media_ids || [],
+            updated_at: Date.now()
+        };
+        
+        // Add event type specific fields
+        if (updateData.event_type === 'point') {
+            updateData.year = year;
+            updateData.date = date;
+            // Clear period fields
+            updateData.start_year = undefined;
+            updateData.end_year = undefined;
+            updateData.start_date = undefined;
+            updateData.end_date = undefined;
+        } else if (updateData.event_type === 'period') {
+            updateData.start_year = start_year;
+            updateData.end_year = end_year;
+            updateData.start_date = start_date;
+            updateData.end_date = end_date;
+            // Clear point event fields
+            updateData.year = undefined;
+            updateData.date = undefined;
+        }
+        
+        // Add location type specific fields
+        if (updateData.location_type === 'point') {
+            updateData.latitude = latitude;
+            updateData.longitude = longitude;
+            updateData.place_name = place_name;
+            // Clear area fields
+            updateData.geographic_scope = undefined;
+            updateData.area_name = undefined;
+        } else if (updateData.location_type === 'area') {
+            updateData.geographic_scope = geographic_scope;
+            updateData.area_name = area_name;
+            // Allow optional coordinates for area center
+            if (latitude !== undefined) updateData.latitude = latitude;
+            if (longitude !== undefined) updateData.longitude = longitude;
+            if (place_name !== undefined) updateData.place_name = place_name;
+        }
+        
         const updatedEvent = await Event.findByIdAndUpdate(
             req.params.id,
-            {
-                title,
-                description,
-                summary,
-                year,
-                date: date || undefined,
-                period_id,
-                latitude,
-                longitude,
-                tags: tags || [],
-                media_ids: media_ids || [],
-                updated_at: Date.now()
-            },
-            { new: true }
+            updateData,
+            { new: true, runValidators: true }
         );
         
         if (!updatedEvent) {
@@ -691,8 +827,8 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
         
         res.json(updatedEvent);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error updating event:', err);
+        res.status(500).json({ error: 'Server error', message: err.message });
     }
 });
 
