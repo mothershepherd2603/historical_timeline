@@ -266,18 +266,30 @@ app.get('/api/events', async (req, res) => {
             query.geographic_scope = geographic_scope;
         }
         
-        // Parse year parameter for exact year match (for point events)
+        // CRITICAL: Year and Date filtering must return overlapping period events
+        
+        // Parse year parameter - must return both point events AND overlapping period events
         if (year !== undefined && year !== null && year !== '') {
             const yearNum = parseInt(year);
             if (!isNaN(yearNum)) {
-                query.year = yearNum;
+                // Query must return:
+                // 1. Point events where year = yearNum
+                // 2. Period events where start_year <= yearNum AND end_year >= yearNum
+                query.$or = [
+                    { event_type: 'point', year: yearNum },
+                    { 
+                        event_type: 'period', 
+                        start_year: { $lte: yearNum },
+                        end_year: { $gte: yearNum }
+                    }
+                ];
             }
         } else if (start_year !== undefined || end_year !== undefined) {
             // Year range filtering - applies to both point and period events
             const $or = [];
             
             // For point events: filter by year field
-            const pointQuery = {};
+            const pointQuery = { event_type: 'point' };
             if (start_year !== undefined && start_year !== null && start_year !== '') {
                 const startYearNum = parseInt(start_year);
                 if (!isNaN(startYearNum)) {
@@ -290,8 +302,8 @@ app.get('/api/events', async (req, res) => {
                     pointQuery.year = { ...pointQuery.year, $lte: endYearNum };
                 }
             }
-            if (Object.keys(pointQuery).length > 0) {
-                $or.push({ event_type: 'point', ...pointQuery });
+            if (Object.keys(pointQuery).length > 1) { // More than just event_type
+                $or.push(pointQuery);
             }
             
             // For period events: filter by start_year and end_year
@@ -319,10 +331,35 @@ app.get('/api/events', async (req, res) => {
             }
         }
         
+        // Add date filter - must return both point events AND overlapping period events
+        if (date) {
+            const selectedDate = new Date(date);
+            const nextDay = new Date(selectedDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            
+            // Query must return:
+            // 1. Point events where date matches
+            // 2. Period events where start_date <= date AND end_date >= date
+            query.$or = [
+                {
+                    event_type: 'point',
+                    date: {
+                        $gte: selectedDate,
+                        $lt: nextDay
+                    }
+                },
+                {
+                    event_type: 'period',
+                    start_date: { $lte: selectedDate },
+                    end_date: { $gte: selectedDate }
+                }
+            ];
+        }
+        
         console.log('Events query:', JSON.stringify(query));
         
-        // Add date filter for Current Affairs (exact date match)
-        if (date) {
+        // Legacy date filter handling (if not already processed above)
+        if (false && date) {
             const selectedDate = new Date(date);
             const nextDay = new Date(selectedDate);
             nextDay.setDate(nextDay.getDate() + 1);
