@@ -82,6 +82,28 @@ const eventSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    // GeoJSON Boundary Data (for area locations)
+    geojson_boundary: {
+        type: {
+            type: String,
+            enum: ['Feature'],
+            default: 'Feature'
+        },
+        geometry: {
+            type: {
+                type: String,
+                enum: ['Polygon', 'MultiPolygon']
+            },
+            coordinates: {
+                type: mongoose.Schema.Types.Mixed  // Array of coordinates
+            }
+        },
+        properties: {
+            name: String,
+            // Additional properties can be stored here
+            type: mongoose.Schema.Types.Mixed
+        }
+    },
     period_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Period'
