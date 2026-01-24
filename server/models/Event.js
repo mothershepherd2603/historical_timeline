@@ -84,25 +84,8 @@ const eventSchema = new mongoose.Schema({
     },
     // GeoJSON Boundary Data (for area locations)
     geojson_boundary: {
-        type: {
-            type: String,
-            enum: ['Feature'],
-            default: 'Feature'
-        },
-        geometry: {
-            type: {
-                type: String,
-                enum: ['Polygon', 'MultiPolygon']
-            },
-            coordinates: {
-                type: mongoose.Schema.Types.Mixed  // Array of coordinates
-            }
-        },
-        properties: {
-            name: String,
-            // Additional properties can be stored here
-            type: mongoose.Schema.Types.Mixed
-        }
+        type: mongoose.Schema.Types.Mixed,
+        default: null
     },
     period_id: {
         type: mongoose.Schema.Types.ObjectId,
@@ -175,20 +158,20 @@ eventSchema.pre('validate', function(next) {
         }
     } else if (this.event_type === 'period') {
         // Period events require start_year and end_year
-        if (!this.start_year && this.start_year !== 0) {
+        if (this.start_year === undefined || this.start_year === null) {
             return next(new Error('Period events require a start_year field'));
         }
-        if (!this.end_year && this.end_year !== 0) {
+        if (this.end_year === undefined || this.end_year === null) {
             return next(new Error('Period events require an end_year field'));
         }
         // Validate that end_year >= start_year
         if (this.end_year < this.start_year) {
             return next(new Error('end_year must be greater than or equal to start_year'));
         }
-        // Period events should not have year field
-        if (this.year) {
-            this.year = undefined;
-        }
+        // Period events can optionally have a year field as a reference year
+        // Don't clear it if provided
+        
+        // Clear date field if provided (periods use start_date and end_date)
         if (this.date) {
             this.date = undefined;
         }
