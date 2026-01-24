@@ -708,7 +708,7 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             event_type, year, start_year, end_year,
             date, start_date, end_date,
             location_type, latitude, longitude, place_name,
-            geographic_scope, area_name,
+            geographic_scope, area_name, geojson_boundary,
             period_id, tags, media_ids 
         } = req.body;
         
@@ -762,6 +762,7 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
         } else if (eventData.location_type === 'area') {
             eventData.geographic_scope = geographic_scope;
             eventData.area_name = area_name;
+            eventData.geojson_boundary = geojson_boundary;
             // Allow optional coordinates for area center
             if (latitude !== undefined) eventData.latitude = latitude;
             if (longitude !== undefined) eventData.longitude = longitude;
@@ -784,7 +785,7 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             event_type, year, start_year, end_year,
             date, start_date, end_date,
             location_type, latitude, longitude, place_name,
-            geographic_scope, area_name,
+            geographic_scope, area_name, geojson_boundary,
             period_id, tags, media_ids 
         } = req.body;
         
@@ -843,9 +844,11 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             // Clear area fields
             updateData.geographic_scope = undefined;
             updateData.area_name = undefined;
+            updateData.geojson_boundary = undefined;
         } else if (updateData.location_type === 'area') {
             updateData.geographic_scope = geographic_scope;
             updateData.area_name = area_name;
+            updateData.geojson_boundary = geojson_boundary;
             // Allow optional coordinates for area center
             if (latitude !== undefined) updateData.latitude = latitude;
             if (longitude !== undefined) updateData.longitude = longitude;
