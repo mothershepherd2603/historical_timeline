@@ -127,6 +127,11 @@ const userSchema = new mongoose.Schema({
             trim: true
         }
     },
+    // Active session token (for preventing multiple logins)
+    current_token: {
+        type: String,
+        default: null
+    },
     created_at: {
         type: Date,
         default: Date.now
