@@ -197,6 +197,202 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// Get user profile
+app.get('/api/profile', authenticateToken, async (req, res) => {
+    try {
+        console.log('GET /api/profile - User ID:', req.user.id);
+        
+        const user = await User.findById(req.user.id).select('-password_hash');
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Construct profile response
+        const profile = {
+            username: user.username,
+            email: user.email,
+            full_name: user.full_name || '',
+            mobile: user.mobile || '',
+            user_type: user.user_type || '',
+            date_of_birth: user.date_of_birth || '',
+            gender: user.gender || '',
+            address: {
+                street: user.address?.street || '',
+                city: user.address?.city || '',
+                state: user.address?.state || '',
+                pincode: user.address?.pincode || '',
+                country: user.address?.country || 'India'
+            }
+        };
+        
+        // Add user type specific details
+        if (user.user_type === 'student') {
+            profile.student_details = {
+                school: user.student_details?.school || '',
+                grade: user.student_details?.grade || '',
+                stream: user.student_details?.stream || '',
+                board: user.student_details?.board || ''
+            };
+        } else if (user.user_type === 'teacher') {
+            profile.teacher_details = {
+                institution: user.teacher_details?.institution || '',
+                subject: user.teacher_details?.subject || '',
+                experience: user.teacher_details?.experience || '',
+                qualification: user.teacher_details?.qualification || ''
+            };
+        } else if (user.user_type === 'professional') {
+            profile.professional_details = {
+                company: user.professional_details?.company || '',
+                designation: user.professional_details?.designation || '',
+                industry: user.professional_details?.industry || '',
+                experience: user.professional_details?.experience || ''
+            };
+        }
+        
+        res.json(profile);
+    } catch (err) {
+        console.error('Profile fetch error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Update user profile
+app.put('/api/profile/update', authenticateToken, async (req, res) => {
+    try {
+        console.log('PUT /api/profile/update - User ID:', req.user.id);
+        
+        const {
+            email,
+            full_name,
+            mobile,
+            user_type,
+            date_of_birth,
+            gender,
+            address,
+            student_details,
+            teacher_details,
+            professional_details
+        } = req.body;
+        
+        // Find the user
+        const user = await User.findById(req.user.id);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Validate email format if provided
+        if (email && email !== user.email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.status(400).json({ error: 'Invalid email format' });
+            }
+            
+            // Check if email is already taken
+            const existingUser = await User.findOne({ email, _id: { $ne: user._id } });
+            if (existingUser) {
+                return res.status(400).json({ error: 'Email already in use' });
+            }
+            user.email = email;
+        }
+        
+        // Validate mobile format if provided
+        if (mobile) {
+            const mobileRegex = /^\+?[0-9]{10,15}$/;
+            const cleanMobile = mobile.replace(/\s+/g, '');
+            if (!mobileRegex.test(cleanMobile)) {
+                return res.status(400).json({ error: 'Invalid mobile number format' });
+            }
+            user.mobile = mobile;
+        }
+        
+        // Validate gender if provided
+        if (gender) {
+            const validGenders = ['male', 'female', 'other', 'prefer_not_to_say'];
+            if (!validGenders.includes(gender)) {
+                return res.status(400).json({ error: 'Invalid gender value' });
+            }
+            user.gender = gender;
+        }
+        
+        // Validate user type if provided
+        if (user_type) {
+            const validUserTypes = ['student', 'teacher', 'professional'];
+            if (!validUserTypes.includes(user_type)) {
+                return res.status(400).json({ error: 'Invalid user type' });
+            }
+            user.user_type = user_type;
+        }
+        
+        // Update basic fields
+        if (full_name !== undefined) user.full_name = full_name;
+        if (date_of_birth !== undefined) user.date_of_birth = date_of_birth;
+        
+        // Update address
+        if (address) {
+            if (!user.address) user.address = {};
+            if (address.street !== undefined) user.address.street = address.street;
+            if (address.city !== undefined) user.address.city = address.city;
+            if (address.state !== undefined) user.address.state = address.state;
+            if (address.pincode !== undefined) {
+                // Validate pincode format (6 digits for India)
+                if (address.pincode && !/^\d{6}$/.test(address.pincode)) {
+                    return res.status(400).json({ error: 'Invalid PIN code format (must be 6 digits)' });
+                }
+                user.address.pincode = address.pincode;
+            }
+            if (address.country !== undefined) user.address.country = address.country;
+        }
+        
+        // Update user type specific details based on user_type
+        if (user_type === 'student' && student_details) {
+            if (!user.student_details) user.student_details = {};
+            if (student_details.school !== undefined) user.student_details.school = student_details.school;
+            if (student_details.grade !== undefined) user.student_details.grade = student_details.grade;
+            if (student_details.stream !== undefined) user.student_details.stream = student_details.stream;
+            if (student_details.board !== undefined) user.student_details.board = student_details.board;
+            
+            // Clear other type details
+            user.teacher_details = undefined;
+            user.professional_details = undefined;
+        } else if (user_type === 'teacher' && teacher_details) {
+            if (!user.teacher_details) user.teacher_details = {};
+            if (teacher_details.institution !== undefined) user.teacher_details.institution = teacher_details.institution;
+            if (teacher_details.subject !== undefined) user.teacher_details.subject = teacher_details.subject;
+            if (teacher_details.experience !== undefined) user.teacher_details.experience = teacher_details.experience;
+            if (teacher_details.qualification !== undefined) user.teacher_details.qualification = teacher_details.qualification;
+            
+            // Clear other type details
+            user.student_details = undefined;
+            user.professional_details = undefined;
+        } else if (user_type === 'professional' && professional_details) {
+            if (!user.professional_details) user.professional_details = {};
+            if (professional_details.company !== undefined) user.professional_details.company = professional_details.company;
+            if (professional_details.designation !== undefined) user.professional_details.designation = professional_details.designation;
+            if (professional_details.industry !== undefined) user.professional_details.industry = professional_details.industry;
+            if (professional_details.experience !== undefined) user.professional_details.experience = professional_details.experience;
+            
+            // Clear other type details
+            user.student_details = undefined;
+            user.teacher_details = undefined;
+        }
+        
+        // Save the updated user
+        await user.save();
+        
+        console.log('Profile updated successfully for user:', user.username);
+        
+        res.json({
+            success: true,
+            message: 'Profile updated successfully'
+        });
+    } catch (err) {
+        console.error('Profile update error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Get all periods
 app.get('/api/periods', async (req, res) => {
     try {
