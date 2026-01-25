@@ -74,12 +74,27 @@ function authenticateToken(req, res, next) {
         return res.status(401).json({ error: 'Authentication required' });
     }
     
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, async (err, user) => {
         if (err) {
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
-        req.user = user;
-        next();
+        
+        // Check if this token is the current active token for the user
+        try {
+            const dbUser = await User.findById(user.id);
+            if (!dbUser) {
+                return res.status(401).json({ error: 'User not found' });
+            }
+            
+            if (dbUser.current_token !== token) {
+                return res.status(401).json({ error: 'Session expired. Please login again.' });
+            }
+            
+            req.user = user;
+            next();
+        } catch (error) {
+            return res.status(500).json({ error: 'Authentication error' });
+        }
     });
 }
 
@@ -183,6 +198,10 @@ app.post('/api/login', async (req, res) => {
             { expiresIn: '24h' }
         );
         
+        // Store the token in database to prevent multiple logins
+        user.current_token = token;
+        await user.save();
+        
         res.json({
             token,
             user: {
@@ -193,6 +212,24 @@ app.post('/api/login', async (req, res) => {
         });
     } catch (err) {
         console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// User logout
+app.post('/api/logout', authenticateToken, async (req, res) => {
+    try {
+        console.log('Logout request for user:', req.user.username);
+        
+        const user = await User.findById(req.user.id);
+        if (user) {
+            user.current_token = null;
+            await user.save();
+        }
+        
+        res.json({ success: true, message: 'Logged out successfully' });
+    } catch (err) {
+        console.error('Logout error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
