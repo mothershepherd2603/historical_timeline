@@ -70,12 +70,17 @@ function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
+    console.log('Auth header:', authHeader ? 'Present' : 'Missing');
+    console.log('Token extracted:', token ? 'Yes' : 'No');
+    
     if (!token) {
+        console.log('401 - No token provided');
         return res.status(401).json({ error: 'Authentication required' });
     }
     
     jwt.verify(token, JWT_SECRET, async (err, user) => {
         if (err) {
+            console.log('403 - Token verification failed:', err.message);
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
         
@@ -83,16 +88,21 @@ function authenticateToken(req, res, next) {
         try {
             const dbUser = await User.findById(user.id);
             if (!dbUser) {
+                console.log('401 - User not found in DB:', user.id);
                 return res.status(401).json({ error: 'User not found' });
             }
             
             if (dbUser.current_token !== token) {
+                console.log('401 - Token mismatch. DB token and provided token differ.');
+                console.log('User:', dbUser.username);
                 return res.status(401).json({ error: 'Session expired. Please login again.' });
             }
             
+            console.log('Authentication successful for user:', dbUser.username);
             req.user = user;
             next();
         } catch (error) {
+            console.log('500 - Auth error:', error);
             return res.status(500).json({ error: 'Authentication error' });
         }
     });
@@ -1149,10 +1159,16 @@ const upload = multer({
 
 app.post('/api/admin/media', authenticateToken, upload.single('file'), async (req, res) => {
     try {
+        console.log('Media upload request received');
+        console.log('User:', req.user ? req.user.id : 'No user');
+        console.log('Body:', req.body);
+        console.log('File:', req.file ? req.file.originalname : 'No file');
+        
         const { type, caption, description } = req.body;
         const file = req.file;
 
         if (!type || !file || !caption) {
+            console.log('Missing required fields - type:', type, 'file:', !!file, 'caption:', caption);
             return res.status(400).json({ error: 'Required fields missing' });
         }
 
