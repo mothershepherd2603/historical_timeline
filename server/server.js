@@ -1136,22 +1136,63 @@ app.get('/api/admin/media', async (req, res) => {
     }
 });
 
-app.post('/api/admin/media', async (req, res) => {
+// S3 upload dependencies
+const multer = require('multer');
+const { uploadToS3 } = require('./utils/s3Upload');
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 100 * 1024 * 1024 // 100MB max (adjust per type)
+    }
+});
+
+app.post('/api/admin/media', authenticateToken, upload.single('file'), async (req, res) => {
     try {
-        const { type, url, caption, description } = req.body;
-        
-        if (!type || !url || !caption) {
+        const { type, caption, description } = req.body;
+        const file = req.file;
+
+        if (!type || !file || !caption) {
             return res.status(400).json({ error: 'Required fields missing' });
         }
-        
+
+        // Validate file type and size (strict)
+        const allowedTypes = {
+            image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+            video: ['video/mp4', 'video/webm', 'video/quicktime'],
+            document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+        };
+        const maxFileSizes = {
+            image: 5 * 1024 * 1024, // 5MB
+            video: 100 * 1024 * 1024, // 100MB
+            document: 10 * 1024 * 1024 // 10MB
+        };
+        if (!allowedTypes[type] || !allowedTypes[type].includes(file.mimetype)) {
+            return res.status(400).json({ error: 'Invalid file type' });
+        }
+        if (file.size > maxFileSizes[type]) {
+            return res.status(400).json({ error: `File too large. Max size for ${type}: ${maxFileSizes[type] / (1024*1024)}MB` });
+        }
+        // Prevent path traversal in filename
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const s3Key = `media/${type}s/${Date.now()}_${safeName}`;
+
+        // Upload to S3
+        const s3Result = await uploadToS3(file.buffer, s3Key, file.mimetype);
+
         const newMedia = await Media.create({
             type,
-            url,
+            url: s3Result.Location,
             caption,
             description,
-            uploader_id: req.user.id
+            uploader_id: req.user.id,
+            s3_key: s3Result.Key,
+            bucket: s3Result.Bucket,
+            etag: s3Result.ETag,
+            file_size: file.size,
+            file_type: file.mimetype
         });
-        
+
         res.status(201).json(newMedia);
     } catch (err) {
         console.error(err);

@@ -4,7 +4,7 @@ const mediaSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ['image', 'video', 'audio']
+        enum: ['image', 'video', 'audio', 'document']
     },
     url: {
         type: String,
@@ -26,6 +26,26 @@ const mediaSchema = new mongoose.Schema({
     uploader_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    // S3 metadata fields
+    s3_key: {
+        type: String,
+        trim: true
+    },
+    bucket: {
+        type: String,
+        trim: true
+    },
+    etag: {
+        type: String,
+        trim: true
+    },
+    file_size: {
+        type: Number
+    },
+    file_type: {
+        type: String,
+        trim: true
     }
 });
 
