@@ -16,7 +16,8 @@ async function uploadToS3(buffer, key, mimetype, bucket = process.env.AWS_BUCKET
     Key: key,
     Body: buffer,
     ContentType: mimetype,
-    ACL: 'public-read',
+    // Note: ACL is not used because bucket has ACLs disabled
+    // Public access is controlled via bucket policy instead
   };
   return s3.upload(params).promise();
 }
