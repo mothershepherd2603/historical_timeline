@@ -624,6 +624,8 @@ app.get('/api/events', async (req, res) => {
         
         // Sort by year (ascending) - for point events use year, for period events use start_year
         const events = await Event.find(query)
+            .populate('media_ids')
+            .populate('period_id')
             .sort({ year: 1, start_year: 1, date: -1 })
             .skip(skip)
             .limit(limit)
@@ -648,7 +650,9 @@ app.get('/api/events/:id', async (req, res) => {
             return res.status(400).json({ error: 'Invalid event ID' });
         }
         
-        const event = await Event.findById(eventId).populate('period_id');
+        const event = await Event.findById(eventId)
+            .populate('media_ids')
+            .populate('period_id');
         
         if (!event) {
             return res.status(404).json({ error: 'Event not found' });
