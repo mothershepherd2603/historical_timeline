@@ -5,11 +5,28 @@ require('dotenv').config();
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/historical_timeline';
 
+// Verify credentials are loaded
+if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_REGION) {
+  console.error('❌ Error: AWS credentials not found in environment variables');
+  console.error('Please ensure .env file contains:');
+  console.error('  - AWS_ACCESS_KEY_ID');
+  console.error('  - AWS_SECRET_ACCESS_KEY');
+  console.error('  - AWS_REGION');
+  console.error('  - AWS_BUCKET_NAME');
+  process.exit(1);
+}
+
 const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  signatureVersion: 'v4',
 });
+
+console.log('AWS Configuration:');
+console.log(`  Region: ${process.env.AWS_REGION}`);
+console.log(`  Bucket: ${process.env.AWS_BUCKET_NAME}`);
+console.log(`  Access Key: ${process.env.AWS_ACCESS_KEY_ID?.substring(0, 4)}...`);
 
 async function updateMediaACLs() {
   try {
