@@ -1139,7 +1139,32 @@ app.delete('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, r
     }
 });
 
-// Media management routes
+// Public media route (no authentication required)
+app.get('/api/media', async (req, res) => {
+    try {
+        const media = await Media.find().sort({ upload_date: -1 });
+        res.json(media);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get single media item by ID (public)
+app.get('/api/media/:id', async (req, res) => {
+    try {
+        const media = await Media.findById(req.params.id);
+        if (!media) {
+            return res.status(404).json({ error: 'Media not found' });
+        }
+        res.json(media);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Admin media management routes
 app.get('/api/admin/media', async (req, res) => {
     try {
         const media = await Media.find().sort({ upload_date: -1 });
