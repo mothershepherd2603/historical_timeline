@@ -1214,6 +1214,57 @@ app.get('/api/media', async (req, res) => {
     }
 });
 
+// Media proxy endpoint - bypass S3 CORS by proxying through backend
+// IMPORTANT: This must come BEFORE /api/media/:id to avoid route conflicts
+app.get('/api/media/proxy', async (req, res) => {
+    try {
+        const { url } = req.query;
+        
+        if (!url) {
+            return res.status(400).json({ error: 'URL parameter is required' });
+        }
+        
+        // Validate that URL is from our S3 bucket
+        if (!url.includes('historical-timeline.s3') && !url.includes('s3.ap-south-1.amazonaws.com')) {
+            return res.status(403).json({ error: 'Invalid media URL' });
+        }
+        
+        // Extract S3 key from URL
+        const urlParts = url.split('/');
+        const keyIndex = urlParts.indexOf('media');
+        if (keyIndex === -1) {
+            return res.status(400).json({ error: 'Invalid S3 URL format' });
+        }
+        const s3Key = urlParts.slice(keyIndex).join('/');
+        
+        console.log('Proxying media from S3:', s3Key);
+        
+        // Fetch from S3
+        const s3 = require('./utils/s3');
+        const params = {
+            Bucket: process.env.AWS_BUCKET_NAME || 'historical-timeline',
+            Key: s3Key
+        };
+        
+        const s3Object = await s3.getObject(params).promise();
+        
+        // Set appropriate headers
+        res.set('Content-Type', s3Object.ContentType || 'application/octet-stream');
+        res.set('Content-Length', s3Object.ContentLength);
+        res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        res.set('Access-Control-Allow-Origin', '*'); // Allow all origins since we're controlling access
+        
+        // Send the file
+        res.send(s3Object.Body);
+    } catch (err) {
+        console.error('Media proxy error:', err);
+        if (err.code === 'NoSuchKey') {
+            return res.status(404).json({ error: 'Media file not found' });
+        }
+        res.status(500).json({ error: 'Failed to fetch media', message: err.message });
+    }
+});
+
 // Get single media item by ID (public)
 app.get('/api/media/:id', async (req, res) => {
     try {
@@ -1340,56 +1391,6 @@ app.delete('/api/admin/media/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// Media proxy endpoint - bypass S3 CORS by proxying through backend
-app.get('/api/media/proxy', async (req, res) => {
-    try {
-        const { url } = req.query;
-        
-        if (!url) {
-            return res.status(400).json({ error: 'URL parameter is required' });
-        }
-        
-        // Validate that URL is from our S3 bucket
-        if (!url.includes('historical-timeline.s3') && !url.includes('s3.ap-south-1.amazonaws.com')) {
-            return res.status(403).json({ error: 'Invalid media URL' });
-        }
-        
-        // Extract S3 key from URL
-        const urlParts = url.split('/');
-        const keyIndex = urlParts.indexOf('media');
-        if (keyIndex === -1) {
-            return res.status(400).json({ error: 'Invalid S3 URL format' });
-        }
-        const s3Key = urlParts.slice(keyIndex).join('/');
-        
-        console.log('Proxying media from S3:', s3Key);
-        
-        // Fetch from S3
-        const s3 = require('./utils/s3');
-        const params = {
-            Bucket: process.env.AWS_BUCKET_NAME || 'historical-timeline',
-            Key: s3Key
-        };
-        
-        const s3Object = await s3.getObject(params).promise();
-        
-        // Set appropriate headers
-        res.set('Content-Type', s3Object.ContentType || 'application/octet-stream');
-        res.set('Content-Length', s3Object.ContentLength);
-        res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-        res.set('Access-Control-Allow-Origin', '*'); // Allow all origins since we're controlling access
-        
-        // Send the file
-        res.send(s3Object.Body);
-    } catch (err) {
-        console.error('Media proxy error:', err);
-        if (err.code === 'NoSuchKey') {
-            return res.status(404).json({ error: 'Media file not found' });
-        }
-        res.status(500).json({ error: 'Failed to fetch media', message: err.message });
     }
 });
 
