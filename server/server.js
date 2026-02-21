@@ -942,7 +942,7 @@ app.get('/api/admin/periods', async (req, res) => {
     }
 });
 
-app.post('/api/admin/periods', async (req, res) => {
+app.post('/api/admin/periods', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const { name, start_year, end_year, requires_subscription, description } = req.body;
         
@@ -965,7 +965,7 @@ app.post('/api/admin/periods', async (req, res) => {
     }
 });
 
-app.put('/api/admin/periods/:id', async (req, res) => {
+app.put('/api/admin/periods/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const { name, start_year, end_year, requires_subscription, description } = req.body;
         
@@ -996,7 +996,7 @@ app.put('/api/admin/periods/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/admin/periods/:id', async (req, res) => {
+app.delete('/api/admin/periods/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
         // Check if period has events
         const eventCount = await Event.countDocuments({ period_id: req.params.id });
@@ -1332,7 +1332,7 @@ app.get('/api/media/:id', async (req, res) => {
 });
 
 // Admin media management routes
-app.get('/api/admin/media', async (req, res) => {
+app.get('/api/admin/media', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const media = await Media.find().sort({ upload_date: -1 });
         
@@ -1422,7 +1422,7 @@ app.post('/api/admin/media', authenticateToken, upload.single('file'), async (re
     }
 });
 
-app.delete('/api/admin/media/:id', async (req, res) => {
+app.delete('/api/admin/media/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
         // Check if media is used in any events
         const eventCount = await Event.countDocuments({ media_ids: req.params.id });
@@ -1447,7 +1447,7 @@ app.delete('/api/admin/media/:id', async (req, res) => {
 });
 
 // User management routes
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/admin/users', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const users = await User.find()
             .select('-password_hash')
@@ -1460,7 +1460,7 @@ app.get('/api/admin/users', async (req, res) => {
 });
 
 // Subscription management routes
-app.get('/api/admin/subscriptions/stats', async (req, res) => {
+app.get('/api/admin/subscriptions/stats', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const totalSubscribers = await UserSubscription.countDocuments({
             end_date: { $gt: new Date() },
@@ -1492,7 +1492,7 @@ app.get('/api/admin/subscriptions/stats', async (req, res) => {
     }
 });
 
-app.get('/api/admin/subscriptions', async (req, res) => {
+app.get('/api/admin/subscriptions', authenticateToken, checkAdmin, async (req, res) => {
     try {
         const subscriptions = await UserSubscription.find({
             end_date: { $gt: new Date() },
