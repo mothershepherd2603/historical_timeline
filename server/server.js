@@ -127,7 +127,17 @@ function convertToProxyUrl(s3Url, req) {
         const host = req.get('host') || 'historical-timeline-a223.onrender.com';
         const baseUrl = `${protocol}://${host}`;
         
-        // Create proxy URL
+        // Extract S3 key from URL (everything after bucket name)
+        // Example: https://bucket.s3.region.amazonaws.com/media/images/file.jpg -> media/images/file.jpg
+        const urlParts = s3Url.split('/');
+        const keyIndex = urlParts.indexOf('media');
+        if (keyIndex !== -1) {
+            const s3Key = urlParts.slice(keyIndex).join('/');
+            // Create proxy URL with path parameter format (what frontend expects)
+            return `${baseUrl}/api/media/proxy/${s3Key}`;
+        }
+        
+        // Fallback to query parameter format if can't extract key
         return `${baseUrl}/api/media/proxy?url=${encodeURIComponent(s3Url)}`;
     }
     
@@ -1216,6 +1226,8 @@ app.get('/api/media', async (req, res) => {
 
 // Media proxy endpoint - bypass S3 CORS by proxying through backend
 // IMPORTANT: This must come BEFORE /api/media/:id to avoid route conflicts
+
+// Version 1: Query parameter format - /api/media/proxy?url=https://...
 app.get('/api/media/proxy', async (req, res) => {
     try {
         const { url } = req.query;
@@ -1237,7 +1249,7 @@ app.get('/api/media/proxy', async (req, res) => {
         }
         const s3Key = urlParts.slice(keyIndex).join('/');
         
-        console.log('Proxying media from S3:', s3Key);
+        console.log('Proxying media from S3 (query):', s3Key);
         
         // Fetch from S3
         const s3 = require('./utils/s3');
@@ -1260,6 +1272,46 @@ app.get('/api/media/proxy', async (req, res) => {
         console.error('Media proxy error:', err);
         if (err.code === 'NoSuchKey') {
             return res.status(404).json({ error: 'Media file not found' });
+        }
+        res.status(500).json({ error: 'Failed to fetch media', message: err.message });
+    }
+});
+
+// Version 2: Path parameter format - /api/media/proxy/media/images/filename.jpg
+// Supports frontend that uses direct S3 key as path
+// Using regex to capture everything after /proxy/
+app.get(/^\/api\/media\/proxy\/(.+)$/, async (req, res) => {
+    try {
+        // Extract S3 key from path (first capture group)
+        const s3Key = req.params[0];
+        
+        if (!s3Key) {
+            return res.status(400).json({ error: 'S3 key is required' });
+        }
+        
+        console.log('Proxying media from S3 (path):', s3Key);
+        
+        // Fetch from S3
+        const s3 = require('./utils/s3');
+        const params = {
+            Bucket: process.env.AWS_BUCKET_NAME || 'historical-timeline',
+            Key: s3Key
+        };
+        
+        const s3Object = await s3.getObject(params).promise();
+        
+        // Set appropriate headers
+        res.set('Content-Type', s3Object.ContentType || 'application/octet-stream');
+        res.set('Content-Length', s3Object.ContentLength);
+        res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        res.set('Access-Control-Allow-Origin', '*'); // Allow all origins since we're controlling access
+        
+        // Send the file
+        res.send(s3Object.Body);
+    } catch (err) {
+        console.error('Media proxy error:', err);
+        if (err.code === 'NoSuchKey') {
+            return res.status(404).json({ error: 'Media file not found in S3' });
         }
         res.status(500).json({ error: 'Failed to fetch media', message: err.message });
     }
