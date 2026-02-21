@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Media Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        h2 {
+            color: #666;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .test-image {
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .code {
+            background: #f4f4f4;
+            padding: 10px;
+            border-left: 4px solid #4CAF50;
+            font-family: monospace;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        #events-container {
+            margin-top: 20px;
+        }
+        .event-card {
+            background: #fafafa;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid #2196F3;
+        }
+        .event-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .event-media {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .media-item img {
+            width: 200px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #console-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .log-entry {
+            margin: 5px 0;
+        }
+        .log-error {
+            color: #f48771;
+        }
+        .log-success {
+            color: #4ec9b0;
+        }
+        .log-info {
+            color: #9cdcfe;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 S3 Media Access Test</h1>
+    
+    <!-- Test 1: Direct Image Load -->
+    <div class="test-section">
+        <h2>Test 1: Direct Image Load from S3</h2>
+        <p>This test loads an image directly from S3 using an &lt;img&gt; tag.</p>
+        <div class="code">
+            &lt;img src="https://historical-timeline.s3.ap-south-1.amazonaws.com/media/images/1770828253322_Screenshot_2025-04-02_195355.png"&gt;
+        </div>
+        <p id="test1-status">Loading...</p>
+        <img 
+            id="test1-image"
+            class="test-image" 
+            src="https://historical-timeline.s3.ap-south-1.amazonaws.com/media/images/1770828253322_Screenshot_2025-04-02_195355.png"
+            alt="Test Image"
+        >
+    </div>
+
+    <!-- Test 2: Fetch API -->
+    <div class="test-section">
+        <h2>Test 2: Fetch API Request</h2>
+        <p>This test uses JavaScript Fetch API to retrieve the image.</p>
+        <button onclick="testFetchAPI()">Run Fetch Test</button>
+        <p id="test2-status"></p>
+        <div id="test2-result"></div>
+    </div>
+
+    <!-- Test 3: Load Events from API -->
+    <div class="test-section">
+        <h2>Test 3: Load Events from Your API</h2>
+        <p>This test fetches events from your backend API and displays their media.</p>
+        <div class="code">
+            API Endpoint: <span id="api-url">http://localhost:3000/api/events</span>
+        </div>
+        <label>
+            API URL: 
+            <input type="text" id="api-input" value="http://localhost:3000/api/events" style="width: 400px; padding: 5px;">
+        </label>
+        <button onclick="loadEventsFromAPI()">Load Events</button>
+        <p id="test3-status"></p>
+        <div id="events-container"></div>
+    </div>
+
+    <!-- Console Output -->
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <div id="console-output">
+            <div class="log-entry log-info">Waiting for tests...</div>
+        </div>
+    </div>
+
+    <script>
+        // Console logging
+        const consoleOutput = document.getElementById('console-output');
+        
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            consoleOutput.appendChild(entry);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            console.log(message);
+        }
+
+        // Test 1: Direct Image Load
+        const test1Image = document.getElementById('test1-image');
+        const test1Status = document.getElementById('test1-status');
+        
+        test1Image.onload = function() {
+            test1Status.innerHTML = '<span class="success">✓ SUCCESS: Image loaded successfully!</span>';
+            log('Test 1: Image loaded successfully', 'success');
+        };
+        
+        test1Image.onerror = function() {
+            test1Status.innerHTML = '<span class="error">✗ FAILED: Could not load image</span>';
+            log('Test 1: Failed to load image', 'error');
+            log('Check browser console for CORS or 403/404 errors', 'error');
+        };
+
+        // Test 2: Fetch API
+        async function testFetchAPI() {
+            const status = document.getElementById('test2-status');
+            const result = document.getElementById('test2-result');
+            status.textContent = 'Testing...';
+            result.innerHTML = '';
+            
+            log('Test 2: Starting Fetch API test...', 'info');
+            
+            const url = 'https://historical-timeline.s3.ap-south-1.amazonaws.com/media/images/1770828253322_Screenshot_2025-04-02_195355.png';
+            
+            try {
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                
+                status.innerHTML = '<span class="success">✓ SUCCESS: Fetch completed</span>';
+                log(`Test 2: Fetch successful - ${blob.size} bytes`, 'success');
+                log(`Response Status: ${response.status} ${response.statusText}`, 'success');
+                log(`Content-Type: ${response.headers.get('content-type')}`, 'info');
+                log(`CORS Header: ${response.headers.get('access-control-allow-origin')}`, 'info');
+                
+                result.innerHTML = `
+                    <p>✓ Successfully fetched image (${blob.size} bytes)</p>
+                    <img src="${objectURL}" class="test-image" alt="Fetched Image">
+                `;
+            } catch (error) {
+                status.innerHTML = '<span class="error">✗ FAILED: ' + error.message + '</span>';
+                log(`Test 2: Fetch failed - ${error.message}`, 'error');
+                result.innerHTML = `
+                    <p class="error">Error: ${error.message}</p>
+                    <p>Common causes:</p>
+                    <ul>
+                        <li>CORS not configured (check S3 CORS settings)</li>
+                        <li>File doesn't exist (404 error)</li>
+                        <li>Public access blocked (403 error)</li>
+                        <li>Network connectivity issue</li>
+                    </ul>
+                `;
+            }
+        }
+
+        // Test 3: Load Events from API
+        async function loadEventsFromAPI() {
+            const status = document.getElementById('test3-status');
+            const container = document.getElementById('events-container');
+            const apiUrl = document.getElementById('api-input').value;
+            
+            status.textContent = 'Loading events...';
+            container.innerHTML = '';
+            
+            log(`Test 3: Fetching events from ${apiUrl}`, 'info');
+            
+            try {
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const events = await response.json();
+                
+                log(`Test 3: Received ${events.length} events`, 'success');
+                
+                if (events.length === 0) {
+                    status.innerHTML = '<span class="success">✓ API works but no events found</span>';
+                    container.innerHTML = '<p>No events in database</p>';
+                    return;
+                }
+                
+                // Filter events that have media
+                const eventsWithMedia = events.filter(e => e.media_ids && e.media_ids.length > 0);
+                
+                status.innerHTML = `<span class="success">✓ SUCCESS: Loaded ${events.length} events (${eventsWithMedia.length} with media)</span>`;
+                
+                eventsWithMedia.forEach(event => {
+                    const eventCard = document.createElement('div');
+                    eventCard.className = 'event-card';
+                    
+                    const title = document.createElement('div');
+                    title.className = 'event-title';
+                    title.textContent = event.title;
+                    eventCard.appendChild(title);
+                    
+                    const mediaContainer = document.createElement('div');
+                    mediaContainer.className = 'event-media';
+                    
+                    event.media_ids.forEach((media, index) => {
+                        log(`Loading media: ${media.url}`, 'info');
+                        
+                        const mediaItem = document.createElement('div');
+                        mediaItem.className = 'media-item';
+                        
+                        if (media.type === 'image') {
+                            const img = document.createElement('img');
+                            img.src = media.url;
+                            img.alt = media.caption || 'Event media';
+                            img.title = media.caption || '';
+                            
+                            img.onload = () => {
+                                log(`✓ Media loaded: ${media.url.split('/').pop()}`, 'success');
+                            };
+                            
+                            img.onerror = () => {
+                                log(`✗ Failed to load: ${media.url}`, 'error');
+                                img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150"><rect width="200" height="150" fill="%23f44336"/><text x="50%" y="50%" fill="white" text-anchor="middle" dy=".3em">Failed to load</text></svg>';
+                            };
+                            
+                            mediaItem.appendChild(img);
+                        } else {
+                            mediaItem.innerHTML = `<p>Media type: ${media.type}</p><a href="${media.url}" target="_blank">Open ${media.type}</a>`;
+                        }
+                        
+                        mediaContainer.appendChild(mediaItem);
+                    });
+                    
+                    eventCard.appendChild(mediaContainer);
+                    container.appendChild(eventCard);
+                });
+                
+                if (eventsWithMedia.length === 0) {
+                    container.innerHTML = '<p>No events have media attached</p>';
+                }
+                
+            } catch (error) {
+                status.innerHTML = '<span class="error">✗ FAILED: ' + error.message + '</span>';
+                log(`Test 3: API request failed - ${error.message}`, 'error');
+                container.innerHTML = `
+                    <p class="error">Error: ${error.message}</p>
+                    <p>Make sure:</p>
+                    <ul>
+                        <li>Your server is running (npm start)</li>
+                        <li>The API URL is correct</li>
+                        <li>CORS is configured on the server</li>
+                    </ul>
+                `;
+            }
+        }
+
+        // Log initial info
+        log('Page loaded successfully', 'success');
+        log('Browser: ' + navigator.userAgent, 'info');
+        log('Testing S3 bucket: historical-timeline', 'info');
+    </script>
+</body>
+</html>

@@ -116,6 +116,40 @@ function checkAdmin(req, res, next) {
     next();
 }
 
+// Helper function to convert S3 URLs to proxy URLs (bypass CORS issues)
+function convertToProxyUrl(s3Url, req) {
+    if (!s3Url) return s3Url;
+    
+    // Only convert S3 URLs
+    if (s3Url.includes('s3.') && s3Url.includes('amazonaws.com')) {
+        // Get the server's base URL
+        const protocol = req.protocol || 'https';
+        const host = req.get('host') || 'historical-timeline-a223.onrender.com';
+        const baseUrl = `${protocol}://${host}`;
+        
+        // Create proxy URL
+        return `${baseUrl}/api/media/proxy?url=${encodeURIComponent(s3Url)}`;
+    }
+    
+    return s3Url;
+}
+
+// Helper function to convert media objects to use proxy URLs
+function convertMediaToProxy(media, req) {
+    if (!media) return media;
+    
+    if (Array.isArray(media)) {
+        return media.map(m => convertMediaToProxy(m, req));
+    }
+    
+    const mediaObj = media.toObject ? media.toObject() : media;
+    if (mediaObj.url) {
+        mediaObj.url = convertToProxyUrl(mediaObj.url, req);
+    }
+    
+    return mediaObj;
+}
+
 // Routes
 
 // Health check endpoint
@@ -631,9 +665,25 @@ app.get('/api/events', async (req, res) => {
             .limit(limit)
             .lean(); // Use lean() for better performance
         
-        console.log('Returning', events.length, 'events');
+        // Convert S3 URLs to proxy URLs to bypass CORS issues
+        const eventsWithProxyUrls = events.map(event => {
+            if (event.media_ids && event.media_ids.length > 0) {
+                event.media_ids = event.media_ids.map(media => {
+                    if (media && media.url) {
+                        return {
+                            ...media,
+                            url: convertToProxyUrl(media.url, req)
+                        };
+                    }
+                    return media;
+                });
+            }
+            return event;
+        });
         
-        res.json(events);
+        console.log('Returning', eventsWithProxyUrls.length, 'events');
+        
+        res.json(eventsWithProxyUrls);
     } catch (err) {
         console.error('Error fetching events:', err);
         res.status(500).json({ error: 'Server error', message: err.message });
@@ -685,7 +735,21 @@ app.get('/api/events/:id', async (req, res) => {
             }
         }
         
-        res.json(event);
+        // Convert S3 URLs to proxy URLs to bypass CORS issues
+        const eventObj = event.toObject();
+        if (eventObj.media_ids && eventObj.media_ids.length > 0) {
+            eventObj.media_ids = eventObj.media_ids.map(media => {
+                if (media && media.url) {
+                    return {
+                        ...media,
+                        url: convertToProxyUrl(media.url, req)
+                    };
+                }
+                return media;
+            });
+        }
+        
+        res.json(eventObj);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
@@ -1168,7 +1232,17 @@ app.get('/api/media/:id', async (req, res) => {
 app.get('/api/admin/media', async (req, res) => {
     try {
         const media = await Media.find().sort({ upload_date: -1 });
-        res.json(media);
+        
+        // Convert S3 URLs to proxy URLs to bypass CORS issues
+        const mediaWithProxyUrls = media.map(m => {
+            const mediaObj = m.toObject();
+            if (mediaObj.url) {
+                mediaObj.url = convertToProxyUrl(mediaObj.url, req);
+            }
+            return mediaObj;
+        });
+        
+        res.json(mediaWithProxyUrls);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
@@ -1266,6 +1340,56 @@ app.delete('/api/admin/media/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Media proxy endpoint - bypass S3 CORS by proxying through backend
+app.get('/api/media/proxy', async (req, res) => {
+    try {
+        const { url } = req.query;
+        
+        if (!url) {
+            return res.status(400).json({ error: 'URL parameter is required' });
+        }
+        
+        // Validate that URL is from our S3 bucket
+        if (!url.includes('historical-timeline.s3') && !url.includes('s3.ap-south-1.amazonaws.com')) {
+            return res.status(403).json({ error: 'Invalid media URL' });
+        }
+        
+        // Extract S3 key from URL
+        const urlParts = url.split('/');
+        const keyIndex = urlParts.indexOf('media');
+        if (keyIndex === -1) {
+            return res.status(400).json({ error: 'Invalid S3 URL format' });
+        }
+        const s3Key = urlParts.slice(keyIndex).join('/');
+        
+        console.log('Proxying media from S3:', s3Key);
+        
+        // Fetch from S3
+        const s3 = require('./utils/s3');
+        const params = {
+            Bucket: process.env.AWS_BUCKET_NAME || 'historical-timeline',
+            Key: s3Key
+        };
+        
+        const s3Object = await s3.getObject(params).promise();
+        
+        // Set appropriate headers
+        res.set('Content-Type', s3Object.ContentType || 'application/octet-stream');
+        res.set('Content-Length', s3Object.ContentLength);
+        res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        res.set('Access-Control-Allow-Origin', '*'); // Allow all origins since we're controlling access
+        
+        // Send the file
+        res.send(s3Object.Body);
+    } catch (err) {
+        console.error('Media proxy error:', err);
+        if (err.code === 'NoSuchKey') {
+            return res.status(404).json({ error: 'Media file not found' });
+        }
+        res.status(500).json({ error: 'Failed to fetch media', message: err.message });
     }
 });
 

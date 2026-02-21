@@ -36,7 +36,52 @@ Your S3 bucket has ACLs disabled, which is the recommended security setting. Thi
 
 4. Click **Save changes**
 
-### Step 3: Verify Block Public Access Settings
+### Step 3: Configure CORS (Cross-Origin Resource Sharing)
+
+1. In the S3 bucket, go to the **Permissions** tab
+2. Scroll down to **Cross-origin resource sharing (CORS)**
+3. Click **Edit**
+4. Paste the following CORS configuration:
+
+**Option 1: Allow All Origins (Recommended - Simpler)**
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedOrigins": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+**Option 2: Specific Origins Only**
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedOrigins": [
+      "https://maanchitra.in",
+      "https://www.maanchitra.in",
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://127.0.0.1:5500"
+    ],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+**IMPORTANT:** Do NOT add trailing slashes to origins (e.g., ~~"https://maanchitra.in/"~~)
+
+5. Click **Save changes** and **wait 1-2 minutes** for changes to propagate
+
+### Step 4: Verify Block Public Access Settings
 
 1. In the **Permissions** tab, check **Block public access (bucket settings)**
 2. Make sure **"Block public access to buckets and objects granted through new public bucket or access point policies"** is **OFF**
@@ -44,10 +89,19 @@ Your S3 bucket has ACLs disabled, which is the recommended security setting. Thi
 
 ### What This Does
 
+**Bucket Policy:**
+
 - Allows **public read access** only to files in the `media/` folder
 - All other files in the bucket remain private
 - More secure than using ACLs
 - No need to update ACLs on existing files
+
+**CORS Configuration:**
+
+- Allows your frontend (maanchitra.in) to load media files directly from S3
+- Permits GET and HEAD requests from specified origins
+- Required for images/videos to load in the browser
+- Includes localhost for development testing
 
 ### Alternative: Use Pre-Signed URLs (More Secure)
 
