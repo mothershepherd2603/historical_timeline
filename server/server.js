@@ -16,6 +16,7 @@ const Event = require('./models/Event');
 const Media = require('./models/Media');
 const SubscriptionPlan = require('./models/SubscriptionPlan');
 const UserSubscription = require('./models/UserSubscription');
+const Infrastructure = require('./models/Infrastructure');
 
 const app = express();
 
@@ -1331,6 +1332,121 @@ app.get('/api/media/:id', async (req, res) => {
     }
 });
 
+// ============================================================
+// INFRASTRUCTURE ROUTES (Public)
+// ============================================================
+
+// Get all infrastructure (public endpoint)
+app.get('/api/infrastructure', async (req, res) => {
+    try {
+        const infrastructure = await Infrastructure.find({}).sort({ name: 1 });
+        res.json(infrastructure);
+    } catch (err) {
+        console.error('Error fetching infrastructure:', err);
+        res.status(500).json({ error: 'Failed to fetch infrastructure' });
+    }
+});
+
+// Get single infrastructure item by ID (public endpoint)
+app.get('/api/infrastructure/:id', async (req, res) => {
+    try {
+        const infrastructure = await Infrastructure.findById(req.params.id);
+        if (!infrastructure) {
+            return res.status(404).json({ error: 'Infrastructure not found' });
+        }
+        res.json(infrastructure);
+    } catch (err) {
+        console.error('Error fetching infrastructure:', err);
+        res.status(500).json({ error: 'Failed to fetch infrastructure' });
+    }
+});
+
+// ============================================================
+// INFRASTRUCTURE ROUTES (Admin)
+// ============================================================
+
+// Create new infrastructure (admin only)
+app.post('/api/admin/infrastructure', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { name, type, state, latitude, longitude, icon, color, details } = req.body;
+        
+        // Validation
+        if (!name || !type || latitude === undefined || longitude === undefined) {
+            return res.status(400).json({ 
+                error: 'Name, type, latitude, and longitude are required' 
+            });
+        }
+        
+        const infrastructure = new Infrastructure({
+            name,
+            type,
+            state,
+            latitude,
+            longitude,
+            icon: icon || null,
+            color: color || '#3498db',
+            details,
+        });
+        
+        await infrastructure.save();
+        res.status(201).json(infrastructure);
+    } catch (err) {
+        console.error('Error creating infrastructure:', err);
+        res.status(500).json({ error: 'Failed to create infrastructure' });
+    }
+});
+
+// Update infrastructure (admin only)
+app.put('/api/admin/infrastructure/:id', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { name, type, state, latitude, longitude, icon, color, details } = req.body;
+        
+        const infrastructure = await Infrastructure.findByIdAndUpdate(
+            req.params.id,
+            {
+                name,
+                type,
+                state,
+                latitude,
+                longitude,
+                icon: icon || null,
+                color: color || '#3498db',
+                details,
+                updatedAt: Date.now(),
+            },
+            { new: true, runValidators: true }
+        );
+        
+        if (!infrastructure) {
+            return res.status(404).json({ error: 'Infrastructure not found' });
+        }
+        
+        res.json(infrastructure);
+    } catch (err) {
+        console.error('Error updating infrastructure:', err);
+        res.status(500).json({ error: 'Failed to update infrastructure' });
+    }
+});
+
+// Delete infrastructure (admin only)
+app.delete('/api/admin/infrastructure/:id', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const infrastructure = await Infrastructure.findByIdAndDelete(req.params.id);
+        
+        if (!infrastructure) {
+            return res.status(404).json({ error: 'Infrastructure not found' });
+        }
+        
+        res.json({ 
+            message: 'Infrastructure deleted successfully',
+            infrastructure 
+        });
+    } catch (err) {
+        console.error('Error deleting infrastructure:', err);
+        res.status(500).json({ error: 'Failed to delete infrastructure' });
+    }
+});
+
 // Admin media management routes
 app.get('/api/admin/media', authenticateToken, checkAdmin, async (req, res) => {
     try {
@@ -1538,11 +1654,287 @@ app.use((err, req, res, next) => {
     });
 });
 
+// ============================================================
+// INFRASTRUCTURE SEEDING
+// ============================================================
+
+// Seed initial infrastructure data if collection is empty
+async function seedInfrastructure() {
+    try {
+        const count = await Infrastructure.countDocuments();
+        if (count === 0) {
+            const initialInfrastructure = [
+                {
+                    name: 'Jharia Coalfield',
+                    type: 'coal_mine',
+                    latitude: 23.7500,
+                    longitude: 86.4167,
+                    state: 'Jharkhand',
+                    icon: '⛏',
+                    color: '#34495e',
+                    details: "One of India's largest coal reserves",
+                },
+                {
+                    name: 'Raniganj Coalfield',
+                    type: 'coal_mine',
+                    latitude: 23.6333,
+                    longitude: 87.1333,
+                    state: 'West Bengal',
+                    icon: '⛏',
+                    color: '#34495e',
+                    details: 'Oldest coal mining area in India',
+                },
+                {
+                    name: 'Singrauli Coalfield',
+                    type: 'coal_mine',
+                    latitude: 24.2000,
+                    longitude: 82.6667,
+                    state: 'Madhya Pradesh',
+                    icon: '⛏',
+                    color: '#34495e',
+                    details: 'Major coal producing region',
+                },
+                {
+                    name: 'Talcher Coalfield',
+                    type: 'coal_mine',
+                    latitude: 20.9500,
+                    longitude: 85.2167,
+                    state: 'Odisha',
+                    icon: '⛏',
+                    color: '#34495e',
+                    details: 'Important coal reserves',
+                },
+                {
+                    name: 'Korba Coalfield',
+                    type: 'coal_mine',
+                    latitude: 22.3500,
+                    longitude: 82.7000,
+                    state: 'Chhattisgarh',
+                    icon: '⛏',
+                    color: '#34495e',
+                    details: 'Significant coal mining area',
+                },
+                {
+                    name: 'Jamnagar Refinery',
+                    type: 'refinery',
+                    latitude: 22.4707,
+                    longitude: 70.0577,
+                    state: 'Gujarat',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: "World's largest refinery complex (Reliance)",
+                },
+                {
+                    name: 'Panipat Refinery',
+                    type: 'refinery',
+                    latitude: 29.3909,
+                    longitude: 76.9635,
+                    state: 'Haryana',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: 'Major IOCL refinery',
+                },
+                {
+                    name: 'Mathura Refinery',
+                    type: 'refinery',
+                    latitude: 27.4924,
+                    longitude: 77.6737,
+                    state: 'Uttar Pradesh',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: 'IOCL refinery near Agra',
+                },
+                {
+                    name: 'Vadodara Refinery',
+                    type: 'refinery',
+                    latitude: 22.3072,
+                    longitude: 73.1812,
+                    state: 'Gujarat',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: 'IOCL refinery',
+                },
+                {
+                    name: 'Visakhapatnam Refinery',
+                    type: 'refinery',
+                    latitude: 17.6868,
+                    longitude: 83.2185,
+                    state: 'Andhra Pradesh',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: 'Major coastal refinery',
+                },
+                {
+                    name: 'Chennai Refinery',
+                    type: 'refinery',
+                    latitude: 13.0827,
+                    longitude: 80.2707,
+                    state: 'Tamil Nadu',
+                    icon: '🏭',
+                    color: '#e67e22',
+                    details: 'CPCL refinery',
+                },
+                {
+                    name: 'Vindhyachal Thermal Power',
+                    type: 'power_plant',
+                    latitude: 24.1000,
+                    longitude: 82.6000,
+                    state: 'Madhya Pradesh',
+                    icon: '⚡',
+                    color: '#f39c12',
+                    details: 'Largest thermal power station in India',
+                },
+                {
+                    name: 'Mundra Thermal Power',
+                    type: 'power_plant',
+                    latitude: 22.8400,
+                    longitude: 69.7217,
+                    state: 'Gujarat',
+                    icon: '⚡',
+                    color: '#f39c12',
+                    details: 'Largest private sector thermal power',
+                },
+                {
+                    name: 'Kudankulam Nuclear Power',
+                    type: 'power_plant',
+                    latitude: 8.1667,
+                    longitude: 77.7000,
+                    state: 'Tamil Nadu',
+                    icon: '⚡',
+                    color: '#f39c12',
+                    details: 'Nuclear power plant',
+                },
+                {
+                    name: 'Tarapur Atomic Power',
+                    type: 'power_plant',
+                    latitude: 19.8333,
+                    longitude: 72.6667,
+                    state: 'Maharashtra',
+                    icon: '⚡',
+                    color: '#f39c12',
+                    details: 'First nuclear power station in India',
+                },
+                {
+                    name: 'Kakrapar Atomic Power',
+                    type: 'power_plant',
+                    latitude: 21.2333,
+                    longitude: 73.3500,
+                    state: 'Gujarat',
+                    icon: '⚡',
+                    color: '#f39c12',
+                    details: 'Nuclear power station',
+                },
+                {
+                    name: 'Bhilai Steel Plant',
+                    type: 'steel_plant',
+                    latitude: 21.2167,
+                    longitude: 81.4333,
+                    state: 'Chhattisgarh',
+                    icon: '🏗',
+                    color: '#95a5a6',
+                    details: 'SAIL steel plant',
+                },
+                {
+                    name: 'Rourkela Steel Plant',
+                    type: 'steel_plant',
+                    latitude: 22.2497,
+                    longitude: 84.8644,
+                    state: 'Odisha',
+                    icon: '🏗',
+                    color: '#95a5a6',
+                    details: 'SAIL steel plant',
+                },
+                {
+                    name: 'Bokaro Steel Plant',
+                    type: 'steel_plant',
+                    latitude: 23.6693,
+                    longitude: 86.1511,
+                    state: 'Jharkhand',
+                    icon: '🏗',
+                    color: '#95a5a6',
+                    details: 'SAIL steel plant',
+                },
+                {
+                    name: 'TATA Steel Jamshedpur',
+                    type: 'steel_plant',
+                    latitude: 22.8046,
+                    longitude: 86.2029,
+                    state: 'Jharkhand',
+                    icon: '🏗',
+                    color: '#95a5a6',
+                    details: "India's first private sector steel plant",
+                },
+                {
+                    name: 'Mundra Port',
+                    type: 'port',
+                    latitude: 22.8400,
+                    longitude: 69.7217,
+                    state: 'Gujarat',
+                    icon: '⚓',
+                    color: '#3498db',
+                    details: 'Largest private port in India',
+                },
+                {
+                    name: 'JNPT (Jawaharlal Nehru Port)',
+                    type: 'port',
+                    latitude: 18.9500,
+                    longitude: 72.9500,
+                    state: 'Maharashtra',
+                    icon: '⚓',
+                    color: '#3498db',
+                    details: 'Largest container port',
+                },
+                {
+                    name: 'Chennai Port',
+                    type: 'port',
+                    latitude: 13.1022,
+                    longitude: 80.3002,
+                    state: 'Tamil Nadu',
+                    icon: '⚓',
+                    color: '#3498db',
+                    details: 'Major port on east coast',
+                },
+                {
+                    name: 'Visakhapatnam Port',
+                    type: 'port',
+                    latitude: 17.6868,
+                    longitude: 83.2185,
+                    state: 'Andhra Pradesh',
+                    icon: '⚓',
+                    color: '#3498db',
+                    details: 'Major cargo handling port',
+                },
+                {
+                    name: 'Kandla Port',
+                    type: 'port',
+                    latitude: 23.0333,
+                    longitude: 70.2167,
+                    state: 'Gujarat',
+                    icon: '⚓',
+                    color: '#3498db',
+                    details: 'Major port in Gujarat',
+                },
+            ];
+            
+            await Infrastructure.insertMany(initialInfrastructure);
+            console.log('✅ Infrastructure data seeded successfully');
+            console.log(`   Seeded ${initialInfrastructure.length} infrastructure items`);
+        } else {
+            console.log(`✓ Infrastructure collection already has ${count} items`);
+        }
+    } catch (error) {
+        console.error('❌ Error seeding infrastructure:', error);
+    }
+}
+
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
     console.log(`MongoDB URI: ${MONGODB_URI}`);
+    
+    // Seed infrastructure data on startup
+    await seedInfrastructure();
 });
