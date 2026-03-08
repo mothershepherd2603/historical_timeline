@@ -17,6 +17,16 @@ const Media = require('./models/Media');
 const SubscriptionPlan = require('./models/SubscriptionPlan');
 const UserSubscription = require('./models/UserSubscription');
 const Infrastructure = require('./models/Infrastructure');
+const UserActivity = require('./models/UserActivity');
+
+// Import utilities
+const { 
+    logActivity, 
+    getUserActivityStats, 
+    getRecentUserActivities,
+    getSystemActivityStats,
+    detectSuspiciousActivity 
+} = require('./utils/activityLogger');
 
 const app = express();
 
@@ -190,6 +200,14 @@ app.post('/api/register', async (req, res) => {
         // Validate input
         if (!username || !email || !password) {
             console.log('Registration failed: Missing fields');
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Registration failed - missing required fields',
+                status_code: 400,
+                success: false,
+                error_message: 'All fields are required'
+            });
             return res.status(400).json({ error: 'All fields are required' });
         }
         
@@ -197,6 +215,15 @@ app.post('/api/register', async (req, res) => {
         const existingUser = await User.findOne({ $or: [{ username }, { email }] });
         if (existingUser) {
             console.log('Registration failed: User already exists');
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Registration failed - user already exists',
+                status_code: 400,
+                success: false,
+                error_message: 'Username or email already exists',
+                metadata: { username, email }
+            });
             return res.status(400).json({ error: 'Username or email already exists' });
         }
         
@@ -212,6 +239,23 @@ app.post('/api/register', async (req, res) => {
         
         console.log('User registered successfully:', newUser.username);
         
+        // Log successful registration
+        await logActivity({
+            req,
+            activity_type: 'register',
+            action: `User registered successfully: ${newUser.username}`,
+            status_code: 201,
+            success: true,
+            metadata: {
+                user_id: newUser._id,
+                username: newUser.username,
+                email: newUser.email,
+                role: newUser.role
+            },
+            resource_type: 'user',
+            resource_id: newUser._id
+        });
+        
         res.status(201).json({
             id: newUser._id,
             username: newUser.username,
@@ -220,6 +264,14 @@ app.post('/api/register', async (req, res) => {
         });
     } catch (err) {
         console.error('Registration error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Registration error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -234,6 +286,15 @@ app.post('/api/login', async (req, res) => {
         const user = await User.findOne({ username });
         if (!user) {
             console.log('User not found:', username);
+            await logActivity({
+                req,
+                activity_type: 'login_failed',
+                action: `Login failed - user not found: ${username}`,
+                status_code: 401,
+                success: false,
+                error_message: 'Invalid credentials',
+                metadata: { username, reason: 'user_not_found' }
+            });
             return res.status(401).json({ error: 'Invalid credentials' });
         }
         
@@ -242,6 +303,17 @@ app.post('/api/login', async (req, res) => {
         const validPassword = await bcrypt.compare(password, user.password_hash);
         if (!validPassword) {
             console.log('Invalid password for user:', username);
+            await logActivity({
+                req,
+                activity_type: 'login_failed',
+                action: `Login failed - invalid password: ${username}`,
+                status_code: 401,
+                success: false,
+                error_message: 'Invalid credentials',
+                metadata: { username, reason: 'invalid_password' },
+                resource_type: 'user',
+                resource_id: user._id
+            });
             return res.status(401).json({ error: 'Invalid credentials' });
         }
         
@@ -257,6 +329,22 @@ app.post('/api/login', async (req, res) => {
         user.current_token = token;
         await user.save();
         
+        // Log successful login
+        await logActivity({
+            req,
+            activity_type: 'login',
+            action: `User logged in successfully: ${username}`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                user_id: user._id,
+                username: user.username,
+                role: user.role
+            },
+            resource_type: 'user',
+            resource_id: user._id
+        });
+        
         res.json({
             token,
             user: {
@@ -267,6 +355,14 @@ app.post('/api/login', async (req, res) => {
         });
     } catch (err) {
         console.error(err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Login error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -282,9 +378,32 @@ app.post('/api/logout', authenticateToken, async (req, res) => {
             await user.save();
         }
         
+        // Log logout activity
+        await logActivity({
+            req,
+            activity_type: 'logout',
+            action: `User logged out: ${req.user.username}`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                user_id: req.user.id,
+                username: req.user.username
+            },
+            resource_type: 'user',
+            resource_id: req.user.id
+        });
+        
         res.json({ success: true, message: 'Logged out successfully' });
     } catch (err) {
         console.error('Logout error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Logout error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -342,9 +461,28 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             };
         }
         
+        // Log profile view
+        await logActivity({
+            req,
+            activity_type: 'view_profile',
+            action: `User viewed profile: ${req.user.username}`,
+            status_code: 200,
+            success: true,
+            resource_type: 'user',
+            resource_id: req.user.id
+        });
+        
         res.json(profile);
     } catch (err) {
         console.error('Profile fetch error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Profile fetch error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -475,12 +613,35 @@ app.put('/api/profile/update', authenticateToken, async (req, res) => {
         
         console.log('Profile updated successfully for user:', user.username);
         
+        // Log profile update
+        await logActivity({
+            req,
+            activity_type: 'update_profile',
+            action: `User updated profile: ${user.username}`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                updated_fields: Object.keys(req.body),
+                user_type: user_type
+            },
+            resource_type: 'user',
+            resource_id: user._id
+        });
+        
         res.json({
             success: true,
             message: 'Profile updated successfully'
         });
     } catch (err) {
         console.error('Profile update error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Profile update error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -489,9 +650,27 @@ app.put('/api/profile/update', authenticateToken, async (req, res) => {
 app.get('/api/periods', async (req, res) => {
     try {
         const periods = await Period.find().sort({ start_year: 1 });
+        
+        await logActivity({
+            req,
+            activity_type: 'view_periods',
+            action: 'Viewed periods list',
+            status_code: 200,
+            success: true,
+            metadata: { periods_count: periods.length }
+        });
+        
         res.json(periods);
     } catch (err) {
         console.error(err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Error fetching periods',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -694,9 +873,29 @@ app.get('/api/events', async (req, res) => {
         
         console.log('Returning', eventsWithProxyUrls.length, 'events');
         
+        await logActivity({
+            req,
+            activity_type: req.query.period_id || req.query.year || req.query.date ? 'search_events' : 'view_events',
+            action: 'Viewed/searched events',
+            status_code: 200,
+            success: true,
+            metadata: {
+                events_count: eventsWithProxyUrls.length,
+                filters: { period_id, year, event_type, location_type, geographic_scope }
+            }
+        });
+        
         res.json(eventsWithProxyUrls);
     } catch (err) {
         console.error('Error fetching events:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Error fetching events',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error', message: err.message });
     }
 });
@@ -775,12 +974,30 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
         
         // Validate plan
         if (!plan || (plan !== 'monthly' && plan !== 'yearly')) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Create order failed - invalid plan',
+                status_code: 400,
+                success: false,
+                error_message: 'Invalid subscription plan',
+                metadata: { plan }
+            });
             return res.status(400).json({ error: 'Invalid subscription plan' });
         }
         
         // Get plan details
         const planDetails = await SubscriptionPlan.findOne({ name: plan });
         if (!planDetails) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Create order failed - plan not found',
+                status_code: 404,
+                success: false,
+                error_message: 'Plan not found',
+                metadata: { plan }
+            });
             return res.status(404).json({ error: 'Plan not found' });
         }
         
@@ -792,6 +1009,15 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
         });
         
         if (existingSubscription) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Create order failed - active subscription exists',
+                status_code: 400,
+                success: false,
+                error_message: 'Active subscription already exists',
+                metadata: { existing_plan_type: existingSubscription.plan_type }
+            });
             return res.status(400).json({ error: 'You already have an active subscription' });
         }
         
@@ -809,6 +1035,22 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
         
         const order = await razorpay.orders.create(options);
         
+        await logActivity({
+            req,
+            activity_type: 'create_subscription_order',
+            action: `Created subscription order for ${plan} plan`,
+            status_code: 201,
+            success: true,
+            metadata: {
+                order_id: order.id,
+                plan_name: planDetails.name,
+                amount: planDetails.price,
+                currency: 'INR'
+            },
+            resource_type: 'subscription',
+            resource_id: order.id
+        });
+        
         res.status(201).json({
             order_id: order.id,
             amount: order.amount,
@@ -818,6 +1060,14 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Create order error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Create order error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error: ' + err.message });
     }
 });
@@ -836,12 +1086,30 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             .digest('hex');
         
         if (expectedSignature !== razorpay_signature) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Payment verification failed - invalid signature',
+                status_code: 400,
+                success: false,
+                error_message: 'Invalid payment signature',
+                metadata: { order_id: razorpay_order_id, payment_id: razorpay_payment_id }
+            });
             return res.status(400).json({ error: 'Invalid payment signature' });
         }
         
         // Get plan details
         const planDetails = await SubscriptionPlan.findOne({ name: plan });
         if (!planDetails) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Payment verification failed - plan not found',
+                status_code: 404,
+                success: false,
+                error_message: 'Plan not found',
+                metadata: { plan }
+            });
             return res.status(404).json({ error: 'Plan not found' });
         }
         
@@ -854,13 +1122,36 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
         const newSubscription = await UserSubscription.create({
             user_id: userId,
             plan_id: planDetails._id,
+            plan_type: planDetails.plan_type,
+            status: 'active',
             start_date: startDate,
             end_date: endDate,
             is_active: true,
             payment_method: 'razorpay',
             payment_amount: planDetails.price,
+            amount_paid: planDetails.price,
             payment_id: razorpay_payment_id,
             order_id: razorpay_order_id
+        });
+        
+        await logActivity({
+            req,
+            activity_type: 'subscription_activated',
+            action: `Subscription activated successfully - ${plan} plan`,
+            status_code: 201,
+            success: true,
+            metadata: {
+                subscription_id: newSubscription._id,
+                plan_name: planDetails.name,
+                plan_type: planDetails.plan_type,
+                amount_paid: planDetails.price,
+                start_date: startDate,
+                end_date: endDate,
+                payment_id: razorpay_payment_id,
+                order_id: razorpay_order_id
+            },
+            resource_type: 'subscription',
+            resource_id: newSubscription._id
         });
         
         res.status(201).json({
@@ -870,6 +1161,14 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
         });
     } catch (err) {
         console.error(err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Payment verification error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -896,11 +1195,28 @@ app.get('/api/subscription/plans', async (req, res) => {
             updated_at: plan.updated_at
         }));
         
+        await logActivity({
+            req,
+            activity_type: 'view_subscription_plans',
+            action: 'Viewed subscription plans',
+            status_code: 200,
+            success: true,
+            metadata: { plans_count: formattedPlans.length }
+        });
+        
         res.json({
             plans: formattedPlans
         });
     } catch (err) {
         console.error('Error fetching subscription plans:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Error fetching subscription plans',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Failed to fetch subscription plans' });
     }
 });
@@ -915,6 +1231,14 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
         .populate('plan_id');
         
         if (!subscription) {
+            await logActivity({
+                req,
+                activity_type: 'check_subscription_status',
+                action: 'Checked subscription status - no subscription',
+                status_code: 200,
+                success: true,
+                metadata: { has_subscription: false }
+            });
             return res.json({ 
                 isActive: false,
                 plan: null,
@@ -927,6 +1251,22 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
         const endDate = new Date(subscription.end_date);
         const isActive = endDate > now && subscription.status === 'active';
         
+        await logActivity({
+            req,
+            activity_type: 'check_subscription_status',
+            action: `Checked subscription status - ${isActive ? 'active' : 'inactive'}`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                has_subscription: true,
+                is_active: isActive,
+                plan_type: subscription.plan_type,
+                end_date: subscription.end_date
+            },
+            resource_type: 'subscription',
+            resource_id: subscription._id
+        });
+        
         res.json({
             isActive: isActive,
             plan: subscription.plan_type,
@@ -935,6 +1275,14 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
         });
     } catch (err) {
         console.error('Error fetching subscription status:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Error fetching subscription status',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
         res.status(500).json({ error: 'Failed to fetch subscription status' });
     }
 });
@@ -1963,6 +2311,257 @@ async function seedInfrastructure() {
         console.error('❌ Error seeding infrastructure:', error);
     }
 }
+
+// ========================================
+// ADMIN ACTIVITY ANALYTICS ENDPOINTS
+// ========================================
+
+// Get user activity logs (admin only)
+app.get('/api/admin/activity/logs', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { 
+            user_id, 
+            activity_type, 
+            success, 
+            start_date, 
+            end_date,
+            limit = 100,
+            skip = 0
+        } = req.query;
+        
+        const query = {};
+        
+        if (user_id) query.user_id = user_id;
+        if (activity_type) query.activity_type = activity_type;
+        if (success !== undefined) query.success = success === 'true';
+        
+        if (start_date || end_date) {
+            query.timestamp = {};
+            if (start_date) query.timestamp.$gte = new Date(start_date);
+            if (end_date) query.timestamp.$lte = new Date(end_date);
+        }
+        
+        const activities = await UserActivity.find(query)
+            .sort({ timestamp: -1 })
+            .limit(parseInt(limit))
+            .skip(parseInt(skip))
+            .select('-request_body -user_agent')
+            .lean();
+        
+        const total = await UserActivity.countDocuments(query);
+        
+        await logActivity({
+            req,
+            activity_type: 'admin_view_stats',
+            action: 'Admin viewed activity logs',
+            status_code: 200,
+            success: true,
+            metadata: {
+                filters: { user_id, activity_type, success },
+                results_count: activities.length
+            }
+        });
+        
+        res.json({
+            activities,
+            total,
+            limit: parseInt(limit),
+            skip: parseInt(skip)
+        });
+    } catch (err) {
+        console.error('Error fetching activity logs:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get activity statistics (admin only)
+app.get('/api/admin/activity/stats', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { days = 7 } = req.query;
+        
+        const stats = await getSystemActivityStats(parseInt(days));
+        
+        // Get total counts
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - parseInt(days));
+        
+        const totalActivities = await UserActivity.countDocuments({
+            timestamp: { $gte: startDate }
+        });
+        
+        const uniqueUsers = await UserActivity.distinct('user_id', {
+            timestamp: { $gte: startDate },
+            user_id: { $ne: null }
+        });
+        
+        const errorCount = await UserActivity.countDocuments({
+            timestamp: { $gte: startDate },
+            success: false
+        });
+        
+        await logActivity({
+            req,
+            activity_type: 'admin_view_stats',
+            action: `Admin viewed activity statistics for ${days} days`,
+            status_code: 200,
+            success: true,
+            metadata: { days, total_activities: totalActivities }
+        });
+        
+        res.json({
+            period_days: parseInt(days),
+            total_activities: totalActivities,
+            unique_users: uniqueUsers.length,
+            total_errors: errorCount,
+            daily_stats: stats
+        });
+    } catch (err) {
+        console.error('Error fetching activity stats:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get user-specific activity history (admin only)
+app.get('/api/admin/activity/user/:userId', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { days = 30, limit = 50 } = req.query;
+        
+        const recentActivities = await getRecentUserActivities(userId, parseInt(limit));
+        const userStats = await getUserActivityStats(userId, parseInt(days));
+        
+        await logActivity({
+            req,
+            activity_type: 'admin_view_stats',
+            action: `Admin viewed activity for user ${userId}`,
+            status_code: 200,
+            success: true,
+            metadata: { target_user_id: userId }
+        });
+        
+        res.json({
+            user_id: userId,
+            recent_activities: recentActivities,
+            stats: userStats
+        });
+    } catch (err) {
+        console.error('Error fetching user activity:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get suspicious activity patterns (admin only)
+app.get('/api/admin/activity/suspicious', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { hours = 24 } = req.query;
+        
+        const suspiciousPatterns = await detectSuspiciousActivity(null, parseInt(hours));
+        
+        await logActivity({
+            req,
+            activity_type: 'admin_view_stats',
+            action: `Admin checked suspicious activity for ${hours} hours`,
+            status_code: 200,
+            success: true,
+            metadata: { hours, patterns_found: suspiciousPatterns.length }
+        });
+        
+        res.json({
+            period_hours: parseInt(hours),
+            suspicious_patterns: suspiciousPatterns
+        });
+    } catch (err) {
+        console.error('Error detecting suspicious activity:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get activity breakdown by type (admin only)
+app.get('/api/admin/activity/breakdown', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { days = 7 } = req.query;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - parseInt(days));
+        
+        const breakdown = await UserActivity.aggregate([
+            {
+                $match: {
+                    timestamp: { $gte: startDate }
+                }
+            },
+            {
+                $group: {
+                    _id: '$activity_type',
+                    count: { $sum: 1 },
+                    success_count: {
+                        $sum: { $cond: ['$success', 1, 0] }
+                    },
+                    error_count: {
+                        $sum: { $cond: ['$success', 0, 1] }
+                    },
+                    unique_users: { $addToSet: '$user_id' }
+                }
+            },
+            {
+                $project: {
+                    activity_type: '$_id',
+                    count: 1,
+                    success_count: 1,
+                    error_count: 1,
+                    unique_user_count: { $size: '$unique_users' },
+                    success_rate: {
+                        $multiply: [
+                            { $divide: ['$success_count', '$count'] },
+                            100
+                        ]
+                    }
+                }
+            },
+            { $sort: { count: -1 } }
+        ]);
+        
+        await logActivity({
+            req,
+            activity_type: 'admin_view_stats',
+            action: `Admin viewed activity breakdown for ${days} days`,
+            status_code: 200,
+            success: true,
+            metadata: { days }
+        });
+        
+        res.json({
+            period_days: parseInt(days),
+            breakdown
+        });
+    } catch (err) {
+        console.error('Error fetching activity breakdown:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get recent user activities for profile view (user's own activities)
+app.get('/api/profile/activity', authenticateToken, async (req, res) => {
+    try {
+        const { limit = 20 } = req.query;
+        
+        const activities = await getRecentUserActivities(req.user.id, parseInt(limit));
+        
+        await logActivity({
+            req,
+            activity_type: 'view_profile',
+            action: 'User viewed own activity history',
+            status_code: 200,
+            success: true
+        });
+        
+        res.json({
+            activities
+        });
+    } catch (err) {
+        console.error('Error fetching user activities:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // Start server
 const PORT = process.env.PORT || 3000;
