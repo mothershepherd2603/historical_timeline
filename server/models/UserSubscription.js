@@ -11,6 +11,18 @@ const userSubscriptionSchema = new mongoose.Schema({
         ref: 'SubscriptionPlan',
         required: true
     },
+    plan_type: {
+        type: String,
+        required: true,
+        enum: ['monthly', 'yearly', 'quarterly', 'lifetime'],
+        trim: true
+    },
+    status: {
+        type: String,
+        enum: ['active', 'expired', 'cancelled'],
+        default: 'active',
+        trim: true
+    },
     start_date: {
         type: Date,
         required: true
@@ -32,6 +44,10 @@ const userSubscriptionSchema = new mongoose.Schema({
         type: Number,
         min: 0
     },
+    amount_paid: {
+        type: Number,
+        min: 0
+    },
     payment_id: {
         type: String,
         trim: true
@@ -43,7 +59,17 @@ const userSubscriptionSchema = new mongoose.Schema({
     created_at: {
         type: Date,
         default: Date.now
+    },
+    updated_at: {
+        type: Date,
+        default: Date.now
     }
+});
+
+// Update the updated_at timestamp before saving
+userSubscriptionSchema.pre('save', function(next) {
+    this.updated_at = Date.now();
+    next();
 });
 
 module.exports = mongoose.model('UserSubscription', userSubscriptionSchema);

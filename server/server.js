@@ -874,31 +874,68 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
     }
 });
 
+// Get all available subscription plans (public endpoint)
+app.get('/api/subscription/plans', async (req, res) => {
+    try {
+        const plans = await SubscriptionPlan.find({ is_active: true })
+            .select('-__v')
+            .sort({ duration_days: 1 });
+        
+        // Transform to match expected format
+        const formattedPlans = plans.map(plan => ({
+            id: plan._id,
+            name: plan.name,
+            plan_type: plan.plan_type,
+            price: plan.price,
+            duration_days: plan.duration_days,
+            features: plan.features || [],
+            is_recommended: plan.is_recommended || false,
+            is_active: plan.is_active,
+            description: plan.description,
+            created_at: plan.created_at,
+            updated_at: plan.updated_at
+        }));
+        
+        res.json({
+            plans: formattedPlans
+        });
+    } catch (err) {
+        console.error('Error fetching subscription plans:', err);
+        res.status(500).json({ error: 'Failed to fetch subscription plans' });
+    }
+});
+
 // Check subscription status
 app.get('/api/subscription/status', authenticateToken, async (req, res) => {
     try {
         const subscription = await UserSubscription.findOne({
-            user_id: req.user.id,
-            end_date: { $gt: new Date() },
-            is_active: true
-        }).populate('plan_id');
+            user_id: req.user.id
+        })
+        .sort({ created_at: -1 })
+        .populate('plan_id');
         
         if (!subscription) {
-            return res.json({ isActive: false });
+            return res.json({ 
+                isActive: false,
+                plan: null,
+                startDate: null,
+                endDate: null
+            });
         }
         
+        const now = new Date();
+        const endDate = new Date(subscription.end_date);
+        const isActive = endDate > now && subscription.status === 'active';
+        
         res.json({
-            isActive: true,
-            subscription: {
-                ...subscription.toObject(),
-                plan_name: subscription.plan_id.name,
-                price: subscription.plan_id.price,
-                duration_days: subscription.plan_id.duration_days
-            }
+            isActive: isActive,
+            plan: subscription.plan_type,
+            startDate: subscription.start_date,
+            endDate: subscription.end_date
         });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error fetching subscription status:', err);
+        res.status(500).json({ error: 'Failed to fetch subscription status' });
     }
 });
 
