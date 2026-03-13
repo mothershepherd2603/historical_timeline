@@ -235,6 +235,94 @@ function validateExternalLinks(externalLinks) {
     return true;
 }
 
+// Validation helper for GeoJSON boundaries (supports multiple areas)
+function validateGeoJSONBoundary(geojsonBoundary) {
+    if (!geojsonBoundary) return true; // Optional field
+    
+    // Check if it's the new array format (multiple areas)
+    if (Array.isArray(geojsonBoundary)) {
+        if (geojsonBoundary.length === 0) {
+            return true; // Empty array is valid
+        }
+        
+        for (let i = 0; i < geojsonBoundary.length; i++) {
+            const area = geojsonBoundary[i];
+            
+            if (typeof area !== 'object' || area === null) {
+                throw new Error(`Area at index ${i} must be an object`);
+            }
+            
+            // Validate required properties
+            if (!area.geojson) {
+                throw new Error(`Area at index ${i} must have a 'geojson' property`);
+            }
+            
+            if (!area.name || typeof area.name !== 'string') {
+                throw new Error(`Area at index ${i} must have a 'name' string property`);
+            }
+            
+            if (!area.type || typeof area.type !== 'string') {
+                throw new Error(`Area at index ${i} must have a 'type' string property`);
+            }
+            
+            // Validate GeoJSON structure
+            if (typeof area.geojson !== 'object' || area.geojson === null) {
+                throw new Error(`Area at index ${i}: geojson must be an object`);
+            }
+            
+            // Basic GeoJSON validation
+            if (area.geojson.type !== 'Feature' && area.geojson.type !== 'FeatureCollection') {
+                // Allow basic geometry types as well
+                const validGeometryTypes = ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon', 'GeometryCollection'];
+                if (!validGeometryTypes.includes(area.geojson.type)) {
+                    throw new Error(`Area at index ${i}: Invalid GeoJSON type. Must be Feature, FeatureCollection, or a valid geometry type`);
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    // Check if it's the old single-object format (backward compatibility)
+    if (typeof geojsonBoundary === 'object' && geojsonBoundary !== null) {
+        // Basic GeoJSON validation for single object
+        if (geojsonBoundary.type === 'Feature' || geojsonBoundary.type === 'FeatureCollection') {
+            return true; // Valid old format
+        }
+        
+        // Check if it looks like a geometry object
+        const validGeometryTypes = ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon', 'GeometryCollection'];
+        if (validGeometryTypes.includes(geojsonBoundary.type)) {
+            return true; // Valid geometry object
+        }
+        
+        throw new Error('geojson_boundary must be a valid GeoJSON object or array of area objects');
+    }
+    
+    throw new Error('geojson_boundary must be an object, array, or null');
+}
+
+// Normalize GeoJSON boundary to new format (array of areas)
+function normalizeGeoJSONBoundary(geojsonBoundary) {
+    if (!geojsonBoundary) return null;
+    
+    // If already array format, return as-is
+    if (Array.isArray(geojsonBoundary)) {
+        return geojsonBoundary;
+    }
+    
+    // Convert old single-object format to new array format
+    if (typeof geojsonBoundary === 'object' && geojsonBoundary !== null) {
+        return [{
+            geojson: geojsonBoundary,
+            name: 'Legacy Area', // Default name for old format
+            type: 'legacy' // Mark as converted from old format
+        }];
+    }
+    
+    return null;
+}
+
 // Routes
 
 // Health check endpoint
@@ -1505,6 +1593,7 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
         try {
             validateRelatedEvents(related_events);
             validateExternalLinks(external_links);
+            validateGeoJSONBoundary(geojson_boundary);
         } catch (validationError) {
             console.log('Validation error for new fields:', validationError.message);
             return res.status(400).json({ error: validationError.message });
@@ -1546,6 +1635,7 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
         } else if (eventData.location_type === 'area') {
             eventData.geographic_scope = geographic_scope;
             eventData.area_name = area_name;
+            // Store geojson_boundary as-is (supports both old and new formats)
             eventData.geojson_boundary = geojson_boundary;
             // Allow optional coordinates for area center
             if (latitude !== undefined) eventData.latitude = latitude;
@@ -1567,6 +1657,9 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             metadata: {
                 event_id: newEvent._id,
                 title,
+                location_type: eventData.location_type,
+                has_multiple_areas: Array.isArray(geojson_boundary),
+                areas_count: Array.isArray(geojson_boundary) ? geojson_boundary.length : (geojson_boundary ? 1 : 0),
                 has_related_events: (related_events && related_events.length > 0),
                 has_external_links: (external_links && external_links.length > 0),
                 related_events_count: related_events ? related_events.length : 0,
@@ -1623,6 +1716,7 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
         try {
             validateRelatedEvents(related_events, req.params.id);
             validateExternalLinks(external_links);
+            validateGeoJSONBoundary(geojson_boundary);
         } catch (validationError) {
             console.log('Validation error for new fields:', validationError.message);
             return res.status(400).json({ error: validationError.message });
@@ -1676,6 +1770,7 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
         } else if (updateData.location_type === 'area') {
             updateData.geographic_scope = geographic_scope;
             updateData.area_name = area_name;
+            // Store geojson_boundary as-is (supports both old and new formats)
             updateData.geojson_boundary = geojson_boundary;
             // Allow optional coordinates for area center
             if (latitude !== undefined) updateData.latitude = latitude;
@@ -1706,6 +1801,9 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             metadata: {
                 event_id: updatedEvent._id,
                 title,
+                location_type: updateData.location_type,
+                has_multiple_areas: Array.isArray(geojson_boundary),
+                areas_count: Array.isArray(geojson_boundary) ? geojson_boundary.length : (geojson_boundary ? 1 : 0),
                 has_related_events: (related_events && related_events.length > 0),
                 has_external_links: (external_links && external_links.length > 0),
                 related_events_count: related_events ? related_events.length : 0,
