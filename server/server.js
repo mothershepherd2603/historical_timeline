@@ -171,6 +171,70 @@ function convertMediaToProxy(media, req) {
     return mediaObj;
 }
 
+// Validation helper for related events
+function validateRelatedEvents(relatedEvents, currentEventId = null) {
+    if (!relatedEvents) return true; // Optional field
+    
+    if (!Array.isArray(relatedEvents)) {
+        throw new Error('related_events must be an array');
+    }
+    
+    // Check each ID is a valid ObjectId
+    for (const id of relatedEvents) {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            throw new Error('related_events must contain valid event ObjectIds');
+        }
+        
+        // Prevent self-reference (circular reference to same event)
+        if (currentEventId && id.toString() === currentEventId.toString()) {
+            throw new Error('An event cannot be related to itself');
+        }
+    }
+    
+    return true;
+}
+
+// Validation helper for external links
+function validateExternalLinks(externalLinks) {
+    if (!externalLinks) return true; // Optional field
+    
+    if (!Array.isArray(externalLinks)) {
+        throw new Error('external_links must be an array');
+    }
+    
+    for (const link of externalLinks) {
+        if (!link.title || typeof link.title !== 'string') {
+            throw new Error('Each external link must have a title string');
+        }
+        
+        if (link.title.length > 255) {
+            throw new Error('External link title must be 255 characters or less');
+        }
+        
+        if (!link.url || typeof link.url !== 'string') {
+            throw new Error('Each external link must have a url string');
+        }
+        
+        if (link.url.length > 2048) {
+            throw new Error('External link URL must be 2048 characters or less');
+        }
+        
+        // Basic URL validation
+        try {
+            new URL(link.url);
+        } catch (err) {
+            throw new Error(`Invalid URL: ${link.url}`);
+        }
+        
+        // Enforce HTTP/HTTPS
+        if (!link.url.startsWith('https://') && !link.url.startsWith('http://')) {
+            throw new Error('URLs must start with http:// or https://');
+        }
+    }
+    
+    return true;
+}
+
 // Routes
 
 // Health check endpoint
@@ -1416,12 +1480,14 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             date, start_date, end_date,
             location_type, latitude, longitude, place_name,
             geographic_scope, area_name, geojson_boundary,
-            period_id, tags, media_ids 
+            period_id, tags, media_ids,
+            related_events, external_links
         } = req.body;
         
         console.log('Creating event with data:', { 
             title, summary, event_type, year, start_year, end_year,
-            location_type, geographic_scope, area_name, period_id 
+            location_type, geographic_scope, area_name, period_id,
+            related_events, external_links
         });
         
         // Basic required fields
@@ -1433,6 +1499,15 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
         // Validate ObjectId
         if (!mongoose.Types.ObjectId.isValid(period_id)) {
             return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
+        }
+        
+        // Validate new fields
+        try {
+            validateRelatedEvents(related_events);
+            validateExternalLinks(external_links);
+        } catch (validationError) {
+            console.log('Validation error for new fields:', validationError.message);
+            return res.status(400).json({ error: validationError.message });
         }
         
         // Construct event data object
@@ -1447,6 +1522,8 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
             period_id,
             tags: tags || [],
             media_ids: media_ids || [],
+            related_events: related_events || [],
+            external_links: external_links || [],
             created_by: req.user.id
         };
         
@@ -1477,9 +1554,41 @@ app.post('/api/admin/events', authenticateToken, checkAdmin, async (req, res) =>
         
         const newEvent = await Event.create(eventData);
         
+        // Log activity
+        await logActivity({
+            req,
+            user_id: req.user.id,
+            activity_type: 'admin_create_event',
+            action: `Created event: ${title}`,
+            status_code: 201,
+            success: true,
+            resource_type: 'event',
+            resource_id: newEvent._id,
+            metadata: {
+                event_id: newEvent._id,
+                title,
+                has_related_events: (related_events && related_events.length > 0),
+                has_external_links: (external_links && external_links.length > 0),
+                related_events_count: related_events ? related_events.length : 0,
+                external_links_count: external_links ? external_links.length : 0
+            }
+        });
+        
         res.status(201).json(newEvent);
     } catch (err) {
         console.error('Error creating event:', err);
+        
+        // Log error activity
+        await logActivity({
+            req,
+            user_id: req.user ? req.user.id : null,
+            activity_type: 'api_error',
+            action: 'Failed to create event',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
+        
         res.status(500).json({ error: 'Server error', message: err.message });
     }
 });
@@ -1493,7 +1602,8 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             date, start_date, end_date,
             location_type, latitude, longitude, place_name,
             geographic_scope, area_name, geojson_boundary,
-            period_id, tags, media_ids 
+            period_id, tags, media_ids,
+            related_events, external_links
         } = req.body;
         
         // Basic required fields
@@ -1509,6 +1619,15 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid period_id: must be a valid ObjectId' });
         }
         
+        // Validate new fields (pass current event ID to prevent self-reference)
+        try {
+            validateRelatedEvents(related_events, req.params.id);
+            validateExternalLinks(external_links);
+        } catch (validationError) {
+            console.log('Validation error for new fields:', validationError.message);
+            return res.status(400).json({ error: validationError.message });
+        }
+        
         // Construct update data object
         const updateData = {
             title,
@@ -1521,6 +1640,8 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             period_id,
             tags: tags || [],
             media_ids: media_ids || [],
+            related_events: related_events || [],
+            external_links: external_links || [],
             updated_at: Date.now()
         };
         
@@ -1572,9 +1693,43 @@ app.put('/api/admin/events/:id', authenticateToken, checkAdmin, async (req, res)
             return res.status(404).json({ error: 'Event not found' });
         }
         
+        // Log activity
+        await logActivity({
+            req,
+            user_id: req.user.id,
+            activity_type: 'admin_update_event',
+            action: `Updated event: ${title}`,
+            status_code: 200,
+            success: true,
+            resource_type: 'event',
+            resource_id: updatedEvent._id,
+            metadata: {
+                event_id: updatedEvent._id,
+                title,
+                has_related_events: (related_events && related_events.length > 0),
+                has_external_links: (external_links && external_links.length > 0),
+                related_events_count: related_events ? related_events.length : 0,
+                external_links_count: external_links ? external_links.length : 0
+            }
+        });
+        
         res.json(updatedEvent);
     } catch (err) {
         console.error('Error updating event:', err);
+        
+        // Log error activity
+        await logActivity({
+            req,
+            user_id: req.user ? req.user.id : null,
+            activity_type: 'api_error',
+            action: 'Failed to update event',
+            status_code: 500,
+            success: false,
+            error_message: err.message,
+            resource_type: 'event',
+            resource_id: req.params.id
+        });
+        
         res.status(500).json({ error: 'Server error', message: err.message });
     }
 });

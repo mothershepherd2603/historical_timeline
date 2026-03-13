@@ -99,6 +99,26 @@ const eventSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Media'
     }],
+    // Event Connections
+    related_events: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Event'
+    }],
+    // External Resources
+    external_links: [{
+        title: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 255
+        },
+        url: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 2048
+        }
+    }],
     created_at: {
         type: Date,
         default: Date.now
