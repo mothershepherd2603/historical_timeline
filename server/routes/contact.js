@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
-const nodemailer = require('nodemailer');
 const ContactQuery = require('../models/ContactQuery');
 
 // --- Rate limiter: max 5 submissions per IP per 15 minutes ---
@@ -44,27 +43,6 @@ const validateContact = [
         .isLength({ min: 10, max: 5000 }).withMessage('Message must be 10–5000 characters.'),
 ];
 
-// --- Optional: email notification ---
-async function sendNotificationEmail({ name, email, subject, message }) {
-    const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT) || 587,
-        secure: false,
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-        },
-    });
-
-    await transporter.sendMail({
-        from: '"Maanchitra Contact Form" <no-reply@maanchitra.in>',
-        to: 'support@maanchitra.in',
-        replyTo: email,
-        subject: `[Contact] ${subject} — ${name}`,
-        text: `Name:    ${name}\nEmail:   ${email}\nSubject: ${subject}\n\n${message}`,
-    });
-}
-
 // --- POST /api/contact ---
 router.post('/', contactLimiter, validateContact, async (req, res) => {
     const errors = validationResult(req);
@@ -89,13 +67,6 @@ router.post('/', contactLimiter, validateContact, async (req, res) => {
             ip_address: ipAddress,
             user_agent: userAgent,
         });
-
-        // Send notification email if SMTP is configured
-        if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-            sendNotificationEmail({ name, email, subject, message }).catch((err) => {
-                console.error('Contact notification email failed:', err.message);
-            });
-        }
 
         return res.status(201).json({
             message: 'Contact query received successfully.',
