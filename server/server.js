@@ -560,6 +560,447 @@ app.post('/api/logout', authenticateToken, async (req, res) => {
     }
 });
 
+// ============================================================================
+// Admin User Management Endpoints
+// ============================================================================
+
+// GET /api/admin/users - Get all users (admin only)
+app.get('/api/admin/users', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        console.log('GET /api/admin/users - Admin:', req.user.username);
+        
+        // Fetch all users without password hashes
+        const users = await User.find({})
+            .select('-password_hash -current_token')
+            .sort({ created_at: -1 });
+        
+        // Format response to match frontend expectations
+        const formattedUsers = users.map(user => ({
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            created_at: user.created_at,
+            updated_at: user.updated_at
+        }));
+        
+        // Log admin activity
+        await logActivity({
+            req,
+            activity_type: 'admin_action',
+            action: `Admin ${req.user.username} retrieved user list`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                admin_id: req.user.id,
+                admin_username: req.user.username,
+                users_count: formattedUsers.length
+            }
+        });
+        
+        res.json(formattedUsers);
+    } catch (err) {
+        console.error('Get users error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Get users error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/admin/users - Create new user (admin only)
+app.post('/api/admin/users', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { username, email, password, role } = req.body;
+        console.log('POST /api/admin/users - Creating user:', { username, email, role });
+        
+        // Validate required fields
+        if (!username || !email || !password || !role) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User creation failed - missing required fields',
+                status_code: 400,
+                success: false,
+                error_message: 'All fields are required'
+            });
+            return res.status(400).json({ error: 'All fields are required' });
+        }
+        
+        // Validate username (3-30 characters, alphanumeric + underscore)
+        const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+        if (!usernameRegex.test(username)) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User creation failed - invalid username format',
+                status_code: 400,
+                success: false,
+                error_message: 'Username must be 3-30 characters, alphanumeric and underscores only'
+            });
+            return res.status(400).json({ 
+                error: 'Username must be 3-30 characters, alphanumeric and underscores only' 
+            });
+        }
+        
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User creation failed - invalid email format',
+                status_code: 400,
+                success: false,
+                error_message: 'Invalid email format'
+            });
+            return res.status(400).json({ error: 'Invalid email format' });
+        }
+        
+        // Validate password length (minimum 8 characters)
+        if (password.length < 8) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User creation failed - password too short',
+                status_code: 400,
+                success: false,
+                error_message: 'Password must be at least 8 characters'
+            });
+            return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        }
+        
+        // Validate role
+        const validRoles = ['admin', 'editor', 'viewer', 'user'];
+        if (!validRoles.includes(role)) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User creation failed - invalid role',
+                status_code: 400,
+                success: false,
+                error_message: 'Invalid role. Must be: admin, editor, viewer, or user'
+            });
+            return res.status(400).json({ 
+                error: 'Invalid role. Must be: admin, editor, viewer, or user' 
+            });
+        }
+        
+        // Check if user already exists
+        const existingUser = await User.findOne({ 
+            $or: [{ username }, { email }] 
+        });
+        
+        if (existingUser) {
+            const field = existingUser.username === username ? 'Username' : 'Email';
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: `User creation failed - ${field.toLowerCase()} already exists`,
+                status_code: 400,
+                success: false,
+                error_message: `${field} already exists`,
+                metadata: { username, email }
+            });
+            return res.status(400).json({ error: `${field} already exists` });
+        }
+        
+        // Hash password
+        const password_hash = await bcrypt.hash(password, 10);
+        
+        // Create new user
+        const newUser = await User.create({
+            username,
+            email,
+            password_hash,
+            role
+        });
+        
+        console.log('User created successfully:', newUser.username);
+        
+        // Log successful user creation
+        await logActivity({
+            req,
+            activity_type: 'admin_action',
+            action: `Admin ${req.user.username} created user: ${newUser.username}`,
+            status_code: 201,
+            success: true,
+            metadata: {
+                admin_id: req.user.id,
+                admin_username: req.user.username,
+                new_user_id: newUser._id,
+                new_username: newUser.username,
+                new_email: newUser.email,
+                new_role: newUser.role
+            },
+            resource_type: 'user',
+            resource_id: newUser._id
+        });
+        
+        // Return user without password
+        res.status(201).json({
+            _id: newUser._id,
+            username: newUser.username,
+            email: newUser.email,
+            role: newUser.role,
+            created_at: newUser.created_at
+        });
+    } catch (err) {
+        console.error('Create user error:', err);
+        
+        // Handle duplicate key errors
+        if (err.code === 11000) {
+            const field = err.keyPattern.username ? 'Username' : 'Email';
+            await logActivity({
+                req,
+                activity_type: 'api_error',
+                action: `User creation failed - duplicate ${field.toLowerCase()}`,
+                status_code: 400,
+                success: false,
+                error_message: `${field} already exists`
+            });
+            return res.status(400).json({ error: `${field} already exists` });
+        }
+        
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'User creation error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// PUT /api/admin/users/:id - Update user (admin only)
+app.put('/api/admin/users/:id', authenticateToken, checkAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { username, email, password, role } = req.body;
+        
+        console.log('PUT /api/admin/users/:id - Updating user:', id);
+        
+        // Validate required fields (password is optional)
+        if (!username || !email || !role) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User update failed - missing required fields',
+                status_code: 400,
+                success: false,
+                error_message: 'Username, email, and role are required'
+            });
+            return res.status(400).json({ error: 'Username, email, and role are required' });
+        }
+        
+        // Find user to update
+        const user = await User.findById(id);
+        if (!user) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User update failed - user not found',
+                status_code: 404,
+                success: false,
+                error_message: 'User not found',
+                metadata: { user_id: id }
+            });
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Prevent self-demotion (admin cannot change their own role)
+        if (req.user.id === id && role !== req.user.role) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User update failed - cannot change own role',
+                status_code: 400,
+                success: false,
+                error_message: 'Cannot change your own role',
+                metadata: {
+                    admin_id: req.user.id,
+                    current_role: req.user.role,
+                    attempted_role: role
+                }
+            });
+            return res.status(400).json({ error: 'Cannot change your own role' });
+        }
+        
+        // Validate username if changed
+        if (username !== user.username) {
+            const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+            if (!usernameRegex.test(username)) {
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'User update failed - invalid username format',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Username must be 3-30 characters, alphanumeric and underscores only'
+                });
+                return res.status(400).json({ 
+                    error: 'Username must be 3-30 characters, alphanumeric and underscores only' 
+                });
+            }
+            
+            // Check if new username already exists
+            const existingUsername = await User.findOne({ username, _id: { $ne: id } });
+            if (existingUsername) {
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'User update failed - username already exists',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Username already exists'
+                });
+                return res.status(400).json({ error: 'Username already exists' });
+            }
+        }
+        
+        // Validate email if changed
+        if (email !== user.email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'User update failed - invalid email format',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Invalid email format'
+                });
+                return res.status(400).json({ error: 'Invalid email format' });
+            }
+            
+            // Check if new email already exists
+            const existingEmail = await User.findOne({ email, _id: { $ne: id } });
+            if (existingEmail) {
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'User update failed - email already exists',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Email already exists'
+                });
+                return res.status(400).json({ error: 'Email already exists' });
+            }
+        }
+        
+        // Validate role
+        const validRoles = ['admin', 'editor', 'viewer', 'user'];
+        if (!validRoles.includes(role)) {
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'User update failed - invalid role',
+                status_code: 400,
+                success: false,
+                error_message: 'Invalid role. Must be: admin, editor, viewer, or user'
+            });
+            return res.status(400).json({ 
+                error: 'Invalid role. Must be: admin, editor, viewer, or user' 
+            });
+        }
+        
+        // Validate password if provided
+        if (password) {
+            if (password.length < 8) {
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'User update failed - password too short',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Password must be at least 8 characters'
+                });
+                return res.status(400).json({ error: 'Password must be at least 8 characters' });
+            }
+            
+            // Hash and update password
+            user.password_hash = await bcrypt.hash(password, 10);
+        }
+        
+        // Update user fields
+        user.username = username;
+        user.email = email;
+        user.role = role;
+        user.updated_at = new Date();
+        
+        await user.save();
+        
+        console.log('User updated successfully:', user.username);
+        
+        // Log successful user update
+        await logActivity({
+            req,
+            activity_type: 'admin_action',
+            action: `Admin ${req.user.username} updated user: ${user.username}`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                admin_id: req.user.id,
+                admin_username: req.user.username,
+                updated_user_id: user._id,
+                updated_username: user.username,
+                updated_email: user.email,
+                updated_role: user.role,
+                password_changed: !!password
+            },
+            resource_type: 'user',
+            resource_id: user._id
+        });
+        
+        // Return updated user without password
+        res.json({
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            created_at: user.created_at,
+            updated_at: user.updated_at
+        });
+    } catch (err) {
+        console.error('Update user error:', err);
+        
+        // Handle duplicate key errors
+        if (err.code === 11000) {
+            const field = err.keyPattern.username ? 'Username' : 'Email';
+            await logActivity({
+                req,
+                activity_type: 'api_error',
+                action: `User update failed - duplicate ${field.toLowerCase()}`,
+                status_code: 400,
+                success: false,
+                error_message: `${field} already exists`
+            });
+            return res.status(400).json({ error: `${field} already exists` });
+        }
+        
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'User update error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============================================================================
+// End Admin User Management Endpoints
+// ============================================================================
+
 // Get user profile
 app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
