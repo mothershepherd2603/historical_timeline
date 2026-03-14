@@ -28,6 +28,29 @@ const infrastructureSchema = new mongoose.Schema({
   state: {
     type: String,
   },
+  built_year: {
+    type: Number,
+    required: true,
+    validate: {
+      validator: Number.isInteger,
+      message: 'Built year must be an integer',
+    },
+  },
+  demolish_year: {
+    type: Number,
+    default: null,
+    validate: {
+      validator: function (value) {
+        // If demolish_year is provided, it must be an integer and greater than built_year
+        return (
+          value === null ||
+          value === undefined ||
+          (Number.isInteger(value) && value > this.built_year)
+        );
+      },
+      message: 'Demolish year must be an integer greater than built year',
+    },
+  },
   latitude: {
     type: Number,
     required: true,
@@ -60,6 +83,7 @@ const infrastructureSchema = new mongoose.Schema({
 // Create indexes for efficient queries
 infrastructureSchema.index({ type: 1 });
 infrastructureSchema.index({ name: 'text', details: 'text' });
+infrastructureSchema.index({ built_year: 1, demolish_year: 1 }); // For year-based filtering
 
 const Infrastructure = mongoose.model('Infrastructure', infrastructureSchema);
 

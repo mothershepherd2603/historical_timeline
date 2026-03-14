@@ -2006,19 +2006,42 @@ app.get('/api/infrastructure/:id', async (req, res) => {
 // Create new infrastructure (admin only)
 app.post('/api/admin/infrastructure', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { name, type, state, latitude, longitude, icon, color, details } = req.body;
+        const { name, type, state, built_year, demolish_year, latitude, longitude, icon, color, details } = req.body;
         
         // Validation
-        if (!name || !type || latitude === undefined || longitude === undefined) {
+        if (!name || !type || latitude === undefined || longitude === undefined || !built_year) {
             return res.status(400).json({ 
-                error: 'Name, type, latitude, and longitude are required' 
+                error: 'Name, type, latitude, longitude, and built_year are required' 
             });
+        }
+        
+        // Validate built_year is an integer
+        if (!Number.isInteger(built_year)) {
+            return res.status(400).json({
+                error: 'Built year must be an integer',
+            });
+        }
+        
+        // Validate demolish_year if provided
+        if (demolish_year !== null && demolish_year !== undefined) {
+            if (!Number.isInteger(demolish_year)) {
+                return res.status(400).json({
+                    error: 'Demolish year must be an integer',
+                });
+            }
+            if (demolish_year <= built_year) {
+                return res.status(400).json({
+                    error: 'Demolish year must be after built year',
+                });
+            }
         }
         
         const infrastructure = new Infrastructure({
             name,
             type,
             state,
+            built_year,
+            demolish_year: demolish_year || null,
             latitude,
             longitude,
             icon: icon || null,
@@ -2037,21 +2060,48 @@ app.post('/api/admin/infrastructure', authenticateToken, checkAdmin, async (req,
 // Update infrastructure (admin only)
 app.put('/api/admin/infrastructure/:id', authenticateToken, checkAdmin, async (req, res) => {
     try {
-        const { name, type, state, latitude, longitude, icon, color, details } = req.body;
+        const { name, type, state, built_year, demolish_year, latitude, longitude, icon, color, details } = req.body;
+        
+        // Validate built_year if provided
+        if (built_year !== undefined && !Number.isInteger(built_year)) {
+            return res.status(400).json({
+                error: 'Built year must be an integer',
+            });
+        }
+        
+        // Validate demolish_year if provided
+        if (demolish_year !== null && demolish_year !== undefined) {
+            if (!Number.isInteger(demolish_year)) {
+                return res.status(400).json({
+                    error: 'Demolish year must be an integer',
+                });
+            }
+            const currentBuiltYear = built_year || (await Infrastructure.findById(req.params.id))?.built_year;
+            if (currentBuiltYear && demolish_year <= currentBuiltYear) {
+                return res.status(400).json({
+                    error: 'Demolish year must be after built year',
+                });
+            }
+        }
+        
+        const updateData = {
+            updatedAt: Date.now(),
+        };
+        
+        if (name !== undefined) updateData.name = name;
+        if (type !== undefined) updateData.type = type;
+        if (state !== undefined) updateData.state = state;
+        if (built_year !== undefined) updateData.built_year = built_year;
+        if (demolish_year !== undefined) updateData.demolish_year = demolish_year;
+        if (latitude !== undefined) updateData.latitude = latitude;
+        if (longitude !== undefined) updateData.longitude = longitude;
+        if (icon !== undefined) updateData.icon = icon || null;
+        if (color !== undefined) updateData.color = color || '#3498db';
+        if (details !== undefined) updateData.details = details;
         
         const infrastructure = await Infrastructure.findByIdAndUpdate(
             req.params.id,
-            {
-                name,
-                type,
-                state,
-                latitude,
-                longitude,
-                icon: icon || null,
-                color: color || '#3498db',
-                details,
-                updatedAt: Date.now(),
-            },
+            updateData,
             { new: true, runValidators: true }
         );
         

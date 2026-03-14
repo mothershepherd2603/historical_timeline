@@ -6,7 +6,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "build": "echo 'No build step required'",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "seed:infrastructure": "node seedInfrastructure.js",
+    "migrate:infrastructure": "node migrateInfrastructureYears.js",
+    "test:infrastructure": "node testInfrastructureYears.js"
   },
   "keywords": [],
   "author": "",
