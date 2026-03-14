@@ -3307,6 +3307,12 @@ app.get('/api/profile/activity', authenticateToken, async (req, res) => {
     }
 });
 
+// Contact form routes
+const contactRouter = require('./routes/contact');
+const adminContactRouter = require('./routes/adminContact');
+app.use('/api/contact', contactRouter);
+app.use('/api/admin/contact-queries', authenticateToken, checkAdmin, adminContactRouter);
+
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
