@@ -1814,20 +1814,24 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             
             // Handle based on action type
             if (action === 'upgrade') {
-                // UPGRADE: Replace plan immediately, calculate new end date from today
+                // UPGRADE: Extend from CURRENT end_date to preserve remaining days
+                // User keeps their remaining days + gets the new plan duration
                 const remainingDays = Math.ceil((new Date(existingSubscription.end_date) - new Date()) / (1000 * 60 * 60 * 24));
                 console.log(`Upgrading from ${existingSubscription.plan_type} to ${plan} with ${remainingDays} days remaining`);
                 
-                // Calculate end date from today for the new plan
-                if (plan === 'monthly') {
-                    endDate.setMonth(endDate.getMonth() + 1);
-                } else if (plan === 'yearly') {
-                    endDate.setFullYear(endDate.getFullYear() + 1);
+                // CRITICAL FIX: Calculate end date from CURRENT end_date, NOT from today
+                // This ensures user keeps all remaining paid days
+                const upgradeEndDate = new Date(existingSubscription.end_date);
+                if (plan === 'yearly') {
+                    upgradeEndDate.setFullYear(upgradeEndDate.getFullYear() + 1);
+                } else if (plan === 'monthly') {
+                    upgradeEndDate.setMonth(upgradeEndDate.getMonth() + 1);
                 } else {
-                    endDate.setDate(endDate.getDate() + (planDetails.duration_days || 30));
+                    upgradeEndDate.setDate(upgradeEndDate.getDate() + (planDetails.duration_days || 30));
                 }
                 
-                console.log('Upgrade - new end date:', endDate);
+                endDate = upgradeEndDate;
+                console.log(`Upgrade - new end date: ${endDate.toISOString()} (${remainingDays} remaining days + ${plan === 'yearly' ? '365' : '30'} new days = ~${remainingDays + (plan === 'yearly' ? 365 : 30)} total days)`);
                 
                 // Update subscription with upgrade details
                 existingSubscription.plan_id = planDetails._id;
@@ -1839,6 +1843,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                 existingSubscription.payment_amount = expectedAmount;
                 existingSubscription.upgraded_from = existingSubscription.plan_type !== planType ? existingSubscription.plan_type : undefined;
                 existingSubscription.upgraded_at = new Date();
+                existingSubscription.previous_end_date = existingSubscription.end_date; // Store for reference
                 
                 // Add payment to history
                 if (existingSubscription.payment_history) {
@@ -1848,7 +1853,10 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                         amount_paid: expectedAmount,
                         paid_at: new Date(),
                         action: 'upgrade',
-                        previous_plan: existingSubscription.plan_type
+                        previous_plan: existingSubscription.plan_type,
+                        remaining_days: remainingDays,
+                        new_end_date: endDate,
+                        note: `Preserved ${remainingDays} remaining days from ${existingSubscription.plan_type} plan`
                     });
                 }
                 
@@ -1867,6 +1875,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                         new_plan: plan,
                         plan_type: planType,
                         amount_paid: expectedAmount,
+                        remaining_days_preserved: remainingDays,
                         new_end_date: endDate,
                         payment_id: razorpay_payment_id,
                         order_id: razorpay_order_id
