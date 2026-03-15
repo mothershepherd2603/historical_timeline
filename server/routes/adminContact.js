@@ -47,6 +47,34 @@ router.get('/', async (req, res) => {
     }
 });
 
+// --- GET /api/admin/contact-queries/:id ---
+router.get('/:id', async (req, res) => {
+    try {
+        const query = await ContactQuery.findById(req.params.id);
+
+        if (!query) {
+            return res.status(404).json({ error: 'Query not found.' });
+        }
+
+        return res.json({
+            id: query._id,
+            name: query.name,
+            email: query.email,
+            subject: query.subject,
+            message: query.message,
+            status: query.status,
+            ip_address: query.ip_address,
+            user_agent: query.user_agent,
+            created_at: query.created_at,
+            updated_at: query.updated_at,
+            resolved_at: query.resolved_at,
+        });
+    } catch (err) {
+        console.error('Admin get contact query error:', err);
+        return res.status(500).json({ error: 'Internal server error.' });
+    }
+});
+
 // --- PATCH /api/admin/contact-queries/:id ---
 const validateStatusUpdate = [
     body('status')
