@@ -1668,8 +1668,17 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
 // Verify Razorpay payment and create subscription
 app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) => {
     try {
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan, plan_id, amount } = req.body;
         const userId = req.user.id;
+        
+        console.log('Verification request:', {
+            userId,
+            plan,
+            plan_id,
+            razorpay_order_id,
+            razorpay_payment_id,
+            amount
+        });
         
         // Verify signature
         const body = razorpay_order_id + '|' + razorpay_payment_id;
@@ -1679,6 +1688,10 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             .digest('hex');
         
         if (expectedSignature !== razorpay_signature) {
+            console.error('Signature mismatch:', {
+                received: razorpay_signature,
+                generated: expectedSignature
+            });
             await logActivity({
                 req,
                 activity_type: 'validation_error',
@@ -1688,12 +1701,18 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                 error_message: 'Invalid payment signature',
                 metadata: { order_id: razorpay_order_id, payment_id: razorpay_payment_id }
             });
-            return res.status(400).json({ error: 'Invalid payment signature' });
+            return res.status(400).json({ 
+                error: 'Invalid payment signature',
+                message: 'Payment verification failed. Please contact support.'
+            });
         }
         
-        // Get plan details
-        const planDetails = await SubscriptionPlan.findOne({ name: plan });
+        console.log('Signature verified successfully');
+        
+        // Get plan details using plan_id (ObjectId) instead of name
+        const planDetails = await SubscriptionPlan.findById(plan_id);
         if (!planDetails) {
+            console.error('Plan not found:', plan_id);
             await logActivity({
                 req,
                 activity_type: 'validation_error',
@@ -1701,17 +1720,143 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                 status_code: 404,
                 success: false,
                 error_message: 'Plan not found',
-                metadata: { plan }
+                metadata: { plan, plan_id }
             });
-            return res.status(404).json({ error: 'Plan not found' });
+            return res.status(404).json({ 
+                error: 'Subscription plan not found',
+                message: 'The selected plan is no longer available'
+            });
         }
         
-        // Calculate end date
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + planDetails.duration_days);
+        console.log('Plan found:', planDetails);
         
-        // Create subscription
+        // Validate amount
+        const expectedAmount = parseInt(amount);
+        const planAmount = parseInt(planDetails.price);
+        
+        if (expectedAmount !== planAmount) {
+            console.error('Amount mismatch:', {
+                expected: expectedAmount,
+                plan_price: planAmount
+            });
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Payment verification failed - amount mismatch',
+                status_code: 400,
+                success: false,
+                error_message: 'Payment amount mismatch',
+                metadata: { expected: expectedAmount, plan_price: planAmount }
+            });
+            return res.status(400).json({ 
+                error: 'Payment amount mismatch',
+                message: 'Payment amount does not match the selected plan'
+            });
+        }
+        
+        console.log('Amount validated');
+        
+        // Check for existing active subscription first
+        const existingSubscription = await UserSubscription.findOne({
+            user_id: userId,
+            status: 'active',
+            end_date: { $gt: new Date() }
+        });
+        
+        // Calculate dates based on whether this is a renewal or new subscription
+        const startDate = new Date();
+        let endDate = new Date();
+        let isRenewal = false;
+        
+        if (existingSubscription) {
+            isRenewal = true;
+            console.log('User has existing subscription until:', existingSubscription.end_date);
+            
+            // For renewals, extend from the current end_date to preserve remaining time
+            endDate = new Date(existingSubscription.end_date);
+            
+            if (plan === 'monthly') {
+                endDate.setMonth(endDate.getMonth() + 1);
+            } else if (plan === 'yearly') {
+                endDate.setFullYear(endDate.getFullYear() + 1);
+            } else {
+                // Use duration_days from plan
+                endDate.setDate(endDate.getDate() + planDetails.duration_days);
+            }
+            
+            console.log('Renewal - extending subscription from', existingSubscription.end_date, 'to', endDate);
+        } else {
+            // New subscription - calculate from today
+            if (plan === 'monthly') {
+                endDate.setMonth(endDate.getMonth() + 1);
+            } else if (plan === 'yearly') {
+                endDate.setFullYear(endDate.getFullYear() + 1);
+            } else {
+                // Use duration_days from plan
+                endDate.setDate(endDate.getDate() + planDetails.duration_days);
+            }
+            
+            console.log('New subscription - dates:', { startDate, endDate });
+        }
+        
+        if (existingSubscription) {
+            // Update existing subscription (renewal/upgrade)
+            existingSubscription.plan_id = planDetails._id;
+            existingSubscription.plan_type = planDetails.plan_type;
+            existingSubscription.end_date = endDate;
+            existingSubscription.payment_id = razorpay_payment_id;
+            existingSubscription.order_id = razorpay_order_id;
+            existingSubscription.amount_paid = expectedAmount;
+            existingSubscription.payment_amount = expectedAmount;
+            
+            // Add payment to history if the field exists
+            if (existingSubscription.payment_history) {
+                existingSubscription.payment_history.push({
+                    razorpay_order_id,
+                    razorpay_payment_id,
+                    amount_paid: expectedAmount,
+                    paid_at: new Date()
+                });
+            }
+            
+            await existingSubscription.save();
+            
+            console.log('Updated existing subscription');
+            
+            await logActivity({
+                req,
+                activity_type: 'subscription_renewed',
+                action: `Subscription renewed - ${plan} plan`,
+                status_code: 200,
+                success: true,
+                metadata: {
+                    subscription_id: existingSubscription._id,
+                    plan_name: planDetails.name,
+                    plan_type: planDetails.plan_type,
+                    amount_paid: expectedAmount,
+                    previous_end_date: new Date(existingSubscription.end_date).getTime() - (plan === 'monthly' ? 30*24*60*60*1000 : 365*24*60*60*1000),
+                    new_end_date: endDate,
+                    payment_id: razorpay_payment_id,
+                    order_id: razorpay_order_id
+                },
+                resource_type: 'subscription',
+                resource_id: existingSubscription._id
+            });
+            
+            return res.status(200).json({
+                success: true,
+                message: 'Subscription renewed successfully',
+                subscription: {
+                    plan: plan,
+                    start_date: existingSubscription.start_date,
+                    end_date: endDate,
+                    status: 'active',
+                    is_renewal: true
+                }
+            });
+        }
+        
+        // Create new subscription
         const newSubscription = await UserSubscription.create({
             user_id: userId,
             plan_id: planDetails._id,
@@ -1721,11 +1866,19 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             end_date: endDate,
             is_active: true,
             payment_method: 'razorpay',
-            payment_amount: planDetails.price,
-            amount_paid: planDetails.price,
+            payment_amount: expectedAmount,
+            amount_paid: expectedAmount,
             payment_id: razorpay_payment_id,
-            order_id: razorpay_order_id
+            order_id: razorpay_order_id,
+            payment_history: [{
+                razorpay_order_id,
+                razorpay_payment_id,
+                amount_paid: expectedAmount,
+                paid_at: new Date()
+            }]
         });
+        
+        console.log('Created new subscription:', newSubscription._id);
         
         await logActivity({
             req,
@@ -1737,7 +1890,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                 subscription_id: newSubscription._id,
                 plan_name: planDetails.name,
                 plan_type: planDetails.plan_type,
-                amount_paid: planDetails.price,
+                amount_paid: expectedAmount,
                 start_date: startDate,
                 end_date: endDate,
                 payment_id: razorpay_payment_id,
@@ -1747,13 +1900,19 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             resource_id: newSubscription._id
         });
         
-        res.status(201).json({
-            message: 'Subscription activated successfully',
-            subscription: newSubscription,
-            plan: planDetails
+        res.status(200).json({
+            success: true,
+            message: 'Payment verified successfully',
+            subscription: {
+                plan: plan,
+                start_date: startDate,
+                end_date: endDate,
+                status: 'active'
+            }
         });
     } catch (err) {
-        console.error(err);
+        console.error('Payment verification error:', err);
+        console.error('Error stack:', err.stack);
         await logActivity({
             req,
             activity_type: 'api_error',
@@ -1762,7 +1921,10 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             success: false,
             error_message: err.message
         });
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ 
+            error: 'Payment verification failed',
+            message: err.message
+        });
     }
 });
 
@@ -1834,15 +1996,23 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
             });
             return res.json({ 
                 isActive: false,
+                hasSubscription: false,
                 plan: null,
                 startDate: null,
-                endDate: null
+                endDate: null,
+                canRenew: false
             });
         }
         
         const now = new Date();
         const endDate = new Date(subscription.end_date);
         const isActive = endDate > now && subscription.status === 'active';
+        
+        // Calculate days remaining
+        const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+        
+        // Can renew if subscription is active and has less than 30 days remaining
+        const canRenew = isActive && daysRemaining <= 30;
         
         await logActivity({
             req,
@@ -1854,7 +2024,8 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
                 has_subscription: true,
                 is_active: isActive,
                 plan_type: subscription.plan_type,
-                end_date: subscription.end_date
+                end_date: subscription.end_date,
+                days_remaining: daysRemaining
             },
             resource_type: 'subscription',
             resource_id: subscription._id
@@ -1862,9 +2033,15 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
         
         res.json({
             isActive: isActive,
+            hasSubscription: true,
             plan: subscription.plan_type,
+            planDetails: subscription.plan_id,
             startDate: subscription.start_date,
-            endDate: subscription.end_date
+            endDate: subscription.end_date,
+            daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+            canRenew: canRenew,
+            status: subscription.status,
+            paymentHistory: subscription.payment_history || []
         });
     } catch (err) {
         console.error('Error fetching subscription status:', err);
@@ -1883,27 +2060,71 @@ app.get('/api/subscription/status', authenticateToken, async (req, res) => {
 // Cancel subscription
 app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
     try {
-        const subscription = await UserSubscription.findOneAndUpdate(
-            {
-                user_id: req.user.id,
-                end_date: { $gt: new Date() },
-                is_active: true
-            },
-            { is_active: false },
-            { new: true }
-        );
+        const subscription = await UserSubscription.findOne({
+            user_id: req.user.id,
+            status: 'active',
+            end_date: { $gt: new Date() }
+        });
         
         if (!subscription) {
-            return res.status(404).json({ error: 'No active subscription found' });
+            await logActivity({
+                req,
+                activity_type: 'validation_error',
+                action: 'Cancel subscription failed - no active subscription',
+                status_code: 404,
+                success: false,
+                error_message: 'No active subscription found'
+            });
+            return res.status(404).json({ 
+                error: 'No active subscription found',
+                message: 'You do not have an active subscription to cancel'
+            });
         }
         
+        // Update status to cancelled but keep end_date (user keeps access until expiry)
+        subscription.status = 'cancelled';
+        subscription.is_active = false;
+        await subscription.save();
+        
+        await logActivity({
+            req,
+            activity_type: 'subscription_cancelled',
+            action: `Subscription cancelled - ${subscription.plan_type} plan`,
+            status_code: 200,
+            success: true,
+            metadata: {
+                subscription_id: subscription._id,
+                plan_type: subscription.plan_type,
+                end_date: subscription.end_date,
+                remaining_days: Math.ceil((new Date(subscription.end_date) - new Date()) / (1000 * 60 * 60 * 24))
+            },
+            resource_type: 'subscription',
+            resource_id: subscription._id
+        });
+        
         res.json({
-            message: 'Subscription cancelled successfully',
-            subscription
+            success: true,
+            message: 'Subscription cancelled successfully. You will retain access until the end of your billing period.',
+            subscription: {
+                plan: subscription.plan_type,
+                endDate: subscription.end_date,
+                status: 'cancelled'
+            }
         });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Cancel subscription error:', err);
+        await logActivity({
+            req,
+            activity_type: 'api_error',
+            action: 'Cancel subscription error',
+            status_code: 500,
+            success: false,
+            error_message: err.message
+        });
+        res.status(500).json({ 
+            error: 'Failed to cancel subscription',
+            message: err.message
+        });
     }
 });
 

@@ -56,6 +56,15 @@ const userSubscriptionSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    payment_history: [{
+        razorpay_order_id: String,
+        razorpay_payment_id: String,
+        amount_paid: Number,
+        paid_at: {
+            type: Date,
+            default: Date.now
+        }
+    }],
     created_at: {
         type: Date,
         default: Date.now
