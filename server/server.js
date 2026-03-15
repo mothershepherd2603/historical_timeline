@@ -2760,6 +2760,12 @@ app.get('/api/admin/subscriptions', authenticateToken, checkAdmin, async (req, r
     }
 });
 
+// Contact form routes
+const contactRouter = require('./routes/contact');
+const adminContactRouter = require('./routes/adminContact');
+app.use('/api/contact', contactRouter);
+app.use('/api/admin/contact-queries', authenticateToken, checkAdmin, adminContactRouter);
+
 // 404 handler for undefined routes
 app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) {
@@ -3306,12 +3312,6 @@ app.get('/api/profile/activity', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
-
-// Contact form routes
-const contactRouter = require('./routes/contact');
-const adminContactRouter = require('./routes/adminContact');
-app.use('/api/contact', contactRouter);
-app.use('/api/admin/contact-queries', authenticateToken, checkAdmin, adminContactRouter);
 
 // Start server
 const PORT = process.env.PORT || 3000;
