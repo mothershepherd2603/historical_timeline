@@ -83,4 +83,20 @@ router.patch('/:id', validateStatusUpdate, async (req, res) => {
     }
 });
 
+// --- DELETE /api/admin/contact-queries/:id ---
+router.delete('/:id', async (req, res) => {
+    try {
+        const deleted = await ContactQuery.findByIdAndDelete(req.params.id);
+
+        if (!deleted) {
+            return res.status(404).json({ error: 'Query not found.' });
+        }
+
+        return res.json({ message: 'Contact query deleted successfully.' });
+    } catch (err) {
+        console.error('Admin delete contact query error:', err);
+        return res.status(500).json({ error: 'Internal server error.' });
+    }
+});
+
 module.exports = router;
