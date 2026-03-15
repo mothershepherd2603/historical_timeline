@@ -1562,7 +1562,7 @@ app.get('/api/events/:id', async (req, res) => {
 // Create Razorpay order for subscription
 app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
     try {
-        const { plan } = req.body;
+        const { plan, action } = req.body;
         const userId = req.user.id;
         
         // Validate plan
@@ -1602,16 +1602,40 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
         });
         
         if (existingSubscription) {
-            await logActivity({
-                req,
-                activity_type: 'validation_error',
-                action: 'Create order failed - active subscription exists',
-                status_code: 400,
-                success: false,
-                error_message: 'Active subscription already exists',
-                metadata: { existing_plan_type: existingSubscription.plan_type }
-            });
-            return res.status(400).json({ error: 'You already have an active subscription' });
+            // ✅ ALLOW upgrades and renewals
+            if (action === 'upgrade' || action === 'renew') {
+                console.log(`User ${action}ing from ${existingSubscription.plan_type} to ${plan}`);
+                await logActivity({
+                    req,
+                    activity_type: 'subscription_action',
+                    action: `User ${action}ing subscription`,
+                    status_code: 200,
+                    success: true,
+                    metadata: { 
+                        existing_plan_type: existingSubscription.plan_type,
+                        new_plan: plan,
+                        action: action
+                    }
+                });
+                // Continue to create Razorpay order
+            } else {
+                // ❌ BLOCK duplicate subscriptions
+                await logActivity({
+                    req,
+                    activity_type: 'validation_error',
+                    action: 'Create order failed - active subscription exists',
+                    status_code: 400,
+                    success: false,
+                    error_message: 'Active subscription already exists',
+                    metadata: { existing_plan_type: existingSubscription.plan_type, action: action }
+                });
+                return res.status(400).json({ 
+                    error: 'You already have an active subscription',
+                    message: 'Use upgrade or renew instead of creating a new subscription',
+                    current_plan: existingSubscription.plan_type,
+                    end_date: existingSubscription.end_date
+                });
+            }
         }
         
         // Create Razorpay order
@@ -1668,7 +1692,7 @@ app.post('/api/subscribe/create-order', authenticateToken, async (req, res) => {
 // Verify Razorpay payment and create subscription
 app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) => {
     try {
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan, plan_id, amount } = req.body;
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan, plan_id, amount, action } = req.body;
         const userId = req.user.id;
         
         console.log('Verification request:', {
@@ -1677,7 +1701,8 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             plan_id,
             razorpay_order_id,
             razorpay_payment_id,
-            amount
+            amount,
+            action
         });
         
         // Verify signature
@@ -1776,98 +1801,181 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             end_date: { $gt: new Date() }
         });
         
-        // Calculate dates based on whether this is a renewal or new subscription
+        // Calculate dates based on action type
         const startDate = new Date();
         let endDate = new Date();
-        let isRenewal = false;
         
         if (existingSubscription) {
-            isRenewal = true;
-            console.log('User has existing subscription until:', existingSubscription.end_date);
+            console.log('User has existing subscription:', {
+                plan_type: existingSubscription.plan_type,
+                end_date: existingSubscription.end_date,
+                action: action
+            });
             
-            // For renewals, extend from the current end_date to preserve remaining time
-            endDate = new Date(existingSubscription.end_date);
-            
-            if (plan === 'monthly') {
-                endDate.setMonth(endDate.getMonth() + 1);
-            } else if (plan === 'yearly') {
-                endDate.setFullYear(endDate.getFullYear() + 1);
+            // Handle based on action type
+            if (action === 'upgrade') {
+                // UPGRADE: Replace plan immediately, calculate new end date from today
+                const remainingDays = Math.ceil((new Date(existingSubscription.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+                console.log(`Upgrading from ${existingSubscription.plan_type} to ${plan} with ${remainingDays} days remaining`);
+                
+                // Calculate end date from today for the new plan
+                if (plan === 'monthly') {
+                    endDate.setMonth(endDate.getMonth() + 1);
+                } else if (plan === 'yearly') {
+                    endDate.setFullYear(endDate.getFullYear() + 1);
+                } else {
+                    endDate.setDate(endDate.getDate() + (planDetails.duration_days || 30));
+                }
+                
+                console.log('Upgrade - new end date:', endDate);
+                
+                // Update subscription with upgrade details
+                existingSubscription.plan_id = planDetails._id;
+                existingSubscription.plan_type = planType;
+                existingSubscription.end_date = endDate;
+                existingSubscription.payment_id = razorpay_payment_id;
+                existingSubscription.order_id = razorpay_order_id;
+                existingSubscription.amount_paid = expectedAmount;
+                existingSubscription.payment_amount = expectedAmount;
+                existingSubscription.upgraded_from = existingSubscription.plan_type !== planType ? existingSubscription.plan_type : undefined;
+                existingSubscription.upgraded_at = new Date();
+                
+                // Add payment to history
+                if (existingSubscription.payment_history) {
+                    existingSubscription.payment_history.push({
+                        razorpay_order_id,
+                        razorpay_payment_id,
+                        amount_paid: expectedAmount,
+                        paid_at: new Date(),
+                        action: 'upgrade',
+                        previous_plan: existingSubscription.plan_type
+                    });
+                }
+                
+                await existingSubscription.save();
+                console.log('Upgraded subscription successfully');
+                
+                await logActivity({
+                    req,
+                    activity_type: 'subscription_upgraded',
+                    action: `Subscription upgraded to ${plan} plan`,
+                    status_code: 200,
+                    success: true,
+                    metadata: {
+                        subscription_id: existingSubscription._id,
+                        previous_plan: existingSubscription.plan_type,
+                        new_plan: plan,
+                        plan_type: planType,
+                        amount_paid: expectedAmount,
+                        new_end_date: endDate,
+                        payment_id: razorpay_payment_id,
+                        order_id: razorpay_order_id
+                    },
+                    resource_type: 'subscription',
+                    resource_id: existingSubscription._id
+                });
+                
+                return res.status(200).json({
+                    success: true,
+                    message: 'Subscription upgraded successfully',
+                    subscription: {
+                        plan: plan,
+                        start_date: startDate,
+                        end_date: endDate,
+                        status: 'active',
+                        is_upgrade: true
+                    }
+                });
+                
+            } else if (action === 'renew') {
+                // RENEWAL: Extend from current end date
+                console.log('Renewing subscription - extending from current end date');
+                endDate = new Date(existingSubscription.end_date);
+                
+                if (plan === 'monthly') {
+                    endDate.setMonth(endDate.getMonth() + 1);
+                } else if (plan === 'yearly') {
+                    endDate.setFullYear(endDate.getFullYear() + 1);
+                } else {
+                    endDate.setDate(endDate.getDate() + (planDetails.duration_days || 30));
+                }
+                
+                console.log('Renewal - extending from', existingSubscription.end_date, 'to', endDate);
+                
+                // Update subscription
+                existingSubscription.plan_id = planDetails._id;
+                existingSubscription.plan_type = planType;
+                existingSubscription.end_date = endDate;
+                existingSubscription.payment_id = razorpay_payment_id;
+                existingSubscription.order_id = razorpay_order_id;
+                existingSubscription.amount_paid = expectedAmount;
+                existingSubscription.payment_amount = expectedAmount;
+                
+                // Add payment to history
+                if (existingSubscription.payment_history) {
+                    existingSubscription.payment_history.push({
+                        razorpay_order_id,
+                        razorpay_payment_id,
+                        amount_paid: expectedAmount,
+                        paid_at: new Date(),
+                        action: 'renew'
+                    });
+                }
+                
+                await existingSubscription.save();
+                console.log('Renewed subscription successfully');
+                
+                await logActivity({
+                    req,
+                    activity_type: 'subscription_renewed',
+                    action: `Subscription renewed - ${plan} plan`,
+                    status_code: 200,
+                    success: true,
+                    metadata: {
+                        subscription_id: existingSubscription._id,
+                        plan_name: planDetails.name,
+                        plan_type: planType,
+                        amount_paid: expectedAmount,
+                        new_end_date: endDate,
+                        payment_id: razorpay_payment_id,
+                        order_id: razorpay_order_id
+                    },
+                    resource_type: 'subscription',
+                    resource_id: existingSubscription._id
+                });
+                
+                return res.status(200).json({
+                    success: true,
+                    message: 'Subscription renewed successfully',
+                    subscription: {
+                        plan: plan,
+                        start_date: existingSubscription.start_date,
+                        end_date: endDate,
+                        status: 'active',
+                        is_renewal: true
+                    }
+                });
             } else {
-                // Use duration_days from plan
-                endDate.setDate(endDate.getDate() + planDetails.duration_days);
-            }
-            
-            console.log('Renewal - extending subscription from', existingSubscription.end_date, 'to', endDate);
-        } else {
-            // New subscription - calculate from today
-            if (plan === 'monthly') {
-                endDate.setMonth(endDate.getMonth() + 1);
-            } else if (plan === 'yearly') {
-                endDate.setFullYear(endDate.getFullYear() + 1);
-            } else {
-                // Use duration_days from plan
-                endDate.setDate(endDate.getDate() + planDetails.duration_days);
-            }
-            
-            console.log('New subscription - dates:', { startDate, endDate });
-        }
-        
-        if (existingSubscription) {
-            // Update existing subscription (renewal/upgrade)
-            existingSubscription.plan_id = planDetails._id;
-            existingSubscription.plan_type = planType;
-            existingSubscription.end_date = endDate;
-            existingSubscription.payment_id = razorpay_payment_id;
-            existingSubscription.order_id = razorpay_order_id;
-            existingSubscription.amount_paid = expectedAmount;
-            existingSubscription.payment_amount = expectedAmount;
-            
-            // Add payment to history if the field exists
-            if (existingSubscription.payment_history) {
-                existingSubscription.payment_history.push({
-                    razorpay_order_id,
-                    razorpay_payment_id,
-                    amount_paid: expectedAmount,
-                    paid_at: new Date()
+                // Should not happen if create-order validation is correct
+                console.error('Unexpected action for existing subscription:', action);
+                return res.status(400).json({
+                    error: 'Invalid action',
+                    message: 'You already have an active subscription. Use upgrade or renew instead.'
                 });
             }
-            
-            await existingSubscription.save();
-            
-            console.log('Updated existing subscription');
-            
-            await logActivity({
-                req,
-                activity_type: 'subscription_renewed',
-                action: `Subscription renewed - ${plan} plan`,
-                status_code: 200,
-                success: true,
-                metadata: {
-                    subscription_id: existingSubscription._id,
-                    plan_name: planDetails.name,
-                    plan_type: planType,
-                    amount_paid: expectedAmount,
-                    previous_end_date: new Date(existingSubscription.end_date).getTime() - (plan === 'monthly' ? 30*24*60*60*1000 : 365*24*60*60*1000),
-                    new_end_date: endDate,
-                    payment_id: razorpay_payment_id,
-                    order_id: razorpay_order_id
-                },
-                resource_type: 'subscription',
-                resource_id: existingSubscription._id
-            });
-            
-            return res.status(200).json({
-                success: true,
-                message: 'Subscription renewed successfully',
-                subscription: {
-                    plan: plan,
-                    start_date: existingSubscription.start_date,
-                    end_date: endDate,
-                    status: 'active',
-                    is_renewal: true
-                }
-            });
         }
+        
+        // No existing subscription - create new one (action should be 'subscribe')
+        // Calculate end date from today
+        if (plan === 'monthly') {
+            endDate.setMonth(endDate.getMonth() + 1);
+        } else if (plan === 'yearly') {
+            endDate.setFullYear(endDate.getFullYear() + 1);
+        } else {
+            endDate.setDate(endDate.getDate() + (planDetails.duration_days || 30));
+        }
+        
+        console.log('New subscription - dates:', { startDate, endDate });
         
         // Create new subscription
         const newSubscription = await UserSubscription.create({
