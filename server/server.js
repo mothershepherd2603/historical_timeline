@@ -1730,6 +1730,19 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
         
         console.log('Plan found:', planDetails);
         
+        // Ensure plan_type is available (fallback to request parameter if not in DB)
+        const planType = planDetails.plan_type || plan;
+        
+        if (!planType) {
+            console.error('Plan type not available:', { planDetails, plan });
+            return res.status(400).json({
+                error: 'Invalid plan configuration',
+                message: 'Plan type is missing'
+            });
+        }
+        
+        console.log('Using plan type:', planType);
+        
         // Validate amount
         const expectedAmount = parseInt(amount);
         const planAmount = parseInt(planDetails.price);
@@ -1802,7 +1815,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
         if (existingSubscription) {
             // Update existing subscription (renewal/upgrade)
             existingSubscription.plan_id = planDetails._id;
-            existingSubscription.plan_type = planDetails.plan_type;
+            existingSubscription.plan_type = planType;
             existingSubscription.end_date = endDate;
             existingSubscription.payment_id = razorpay_payment_id;
             existingSubscription.order_id = razorpay_order_id;
@@ -1832,7 +1845,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
                 metadata: {
                     subscription_id: existingSubscription._id,
                     plan_name: planDetails.name,
-                    plan_type: planDetails.plan_type,
+                    plan_type: planType,
                     amount_paid: expectedAmount,
                     previous_end_date: new Date(existingSubscription.end_date).getTime() - (plan === 'monthly' ? 30*24*60*60*1000 : 365*24*60*60*1000),
                     new_end_date: endDate,
@@ -1860,7 +1873,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
         const newSubscription = await UserSubscription.create({
             user_id: userId,
             plan_id: planDetails._id,
-            plan_type: planDetails.plan_type,
+            plan_type: planType,
             status: 'active',
             start_date: startDate,
             end_date: endDate,
@@ -1889,7 +1902,7 @@ app.post('/api/subscribe/verify-payment', authenticateToken, async (req, res) =>
             metadata: {
                 subscription_id: newSubscription._id,
                 plan_name: planDetails.name,
-                plan_type: planDetails.plan_type,
+                plan_type: planType,
                 amount_paid: expectedAmount,
                 start_date: startDate,
                 end_date: endDate,
