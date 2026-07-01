@@ -7,7 +7,10 @@
     "start": "node server.js",
     "build": "echo 'No build step required'",
     "seed": "node seed.js",
+    "seed:ancient-history": "node addAncientHistoryEvents.js",
+    "seed:additional-history": "node addAdditionalHistoryEvents.js",
     "seed:infrastructure": "node seedInfrastructure.js",
+    "link:related-events": "node linkRelatedEvents.js",
     "migrate:infrastructure": "node migrateInfrastructureYears.js",
     "test:infrastructure": "node testInfrastructureYears.js"
   },

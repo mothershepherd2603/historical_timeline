@@ -1443,6 +1443,7 @@ app.get('/api/events', async (req, res) => {
         const events = await Event.find(query)
             .populate('media_ids')
             .populate('period_id')
+            .populate('related_events', 'title year start_year end_year event_type summary place_name area_name')
             .sort({ year: 1, start_year: 1, date: -1 })
             .skip(skip)
             .limit(limit)
@@ -1505,7 +1506,8 @@ app.get('/api/events/:id', async (req, res) => {
         
         const event = await Event.findById(eventId)
             .populate('media_ids')
-            .populate('period_id');
+            .populate('period_id')
+            .populate('related_events', 'title year start_year end_year event_type summary place_name area_name');
         
         if (!event) {
             return res.status(404).json({ error: 'Event not found' });
